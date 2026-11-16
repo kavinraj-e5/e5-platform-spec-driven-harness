@@ -1,0 +1,14 @@
+{
+  "name": "e5-platform-harness",
+  "owner": {
+    "name": "E5 Platform Team"
+  },
+  "plugins": [
+    {
+      "name": "e5-platform",
+      "source": "./plugin",
+      "description": "Spec-driven development harness for the E5 platform. Loads the platform overview at session start and navigates the knowledge base by path and exact name - no keyword search. User commands: /e5-init, /e5-sync, /e5-feature and /e5-bugfix (gated: UX + HLD or root cause, blast radius, LLD, then code), /e5-update-knowledge-base."
+    }
+  ],
+  "description": "The E5 platform harness. Maps a user story to the platform group and the services it touches before any code is read."
+}

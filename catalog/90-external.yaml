@@ -1,0 +1,72 @@
+# =============================================================================
+# OUTSIDE THE PLATFORM BOUNDARY
+#
+# Modelled so that edges leaving the platform have somewhere to land. Nothing here is
+# built, owned or indexed by this knowledge base.
+# =============================================================================
+
+components:
+  - name: automation-hub
+    system: external
+    kind: External
+    plane: external
+    audience: hub-reporting
+    profile: excluded
+    role: >
+      Reporting on the data the workflows processed. Receives execution and transaction
+      reporting from the workflow plane.
+    source:
+      repo: EXTERNAL
+    unindexed: true
+
+  - name: client-ehr
+    system: external
+    kind: External
+    plane: external
+    audience: none
+    profile: excluded
+    role: >
+      The automation targets - Homecare Homebase, WellSky, Waystar. What the RPA actually
+      drives.
+    source:
+      repo: EXTERNAL
+    unindexed: true
+
+  - name: neos
+    system: external
+    kind: External
+    plane: external
+    audience: support
+    profile: excluded
+    role: >
+      The operations UI. Drives the platform - manage and interact with workflows - and
+      reaches subsystems ONLY through interface.
+    source:
+      repo: EXTERNAL
+    unindexed: true
+
+  - name: temporal
+    system: external
+    kind: External
+    plane: external
+    audience: none
+    profile: excluded
+    role: Durable workflow execution, external to the platform.
+    source:
+      repo: EXTERNAL
+    unindexed: true
+
+  - name: jenkins
+    system: external
+    kind: External
+    plane: external
+    audience: none
+    profile: excluded
+    role: >
+      CI/CD. workflow-ops triggers a Jenkins job as one state of the DEPLOYMENT_ACTION
+      machine (DEPLOYMENT_JENKINS_JOB_NAME, handle_init_state.py:66) and waits for
+      JENKINS_COMPLETED. Declared 2026-10-12 because a deployment flow that stops at
+      "and then CI happens" is a chain with its most time-consuming hop missing.
+    source:
+      repo: EXTERNAL
+    unindexed: true

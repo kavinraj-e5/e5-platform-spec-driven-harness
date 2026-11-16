@@ -1,0 +1,207 @@
+#!/usr/bin/env python3
+"""e5 - the E5 platform harness CLI.
+
+First time on a machine:
+  e5 setup                    environment, credentials file, Claude Code plugin
+  e5 update                   pull the newest harness and knowledge, refresh the plugin
+
+What you use (in Claude Code: /e5-init, /e5-sync, /e5-feature, /e5-bugfix, /e5-update-knowledge-base):
+  e5 init                     read the credentials file, verify git + JFrog and the tools
+  e5 sync status              what moved since the last sync
+  e5 sync all [--no-fetch] [--no-build] [--force]
+                              mirror and check out every platform repo under platform/<system>/,
+                              compile, run the extractors and pyright, rebuild the knowledge
+                              base, run the gates
+
+Internal - called by the skills and by sync, listed for maintainers:
+  e5 kb overview|read P|component N|dependencies N|flow N|contract I|trace M
+                              navigate the knowledge base by path and exact name
+  e5 checkouts status|sync    the platform repo checkouts under platform/
+  e5 check                    every gate: catalog, routing, flows, citations, injected values
+  e5 routing                  the two interface routing switches agree
+  e5 flows list|show|check    authored task flows, and their evidence check
+  e5 cite report|check|drift  every file:line the knowledge base cites
+  e5 estate diff|accept       what moved in the platform since the last sync
+  e5 patterns                 re-check the known issues against the code (semgrep)
+  e5 libs report|check        library dependencies and version skew
+  e5 catalog list|check       the System / Component catalog
+  e5 probe --repo ID          classify a new repo; propose a profile (update-knowledge-base)
+  e5 extract | codegraph | layers   the extractors (run by sync)
+  e5 workspace ...            change sets and git worktrees (e5-implement)
+  e5 contest new|list|show    record a correction (e5-correct)
+  e5 unlock --reason "..." | e5 lock    audited override of the edit gate
+  e5 fresh                    which release each repo is indexed at
+  e5 serve [--http]           run the MCP server
+
+Removed 2026-11-14 (word-overlap answers measured at 15-40%, or deploy-time values):
+locate, impact, fits, ask, card, async, channels, queues, cluster, graph, lifecycle,
+creds, console. See evals/p0-tool-validation-2026-11-14.md.
+"""
+import sys, os, json, time, subprocess
+from pathlib import Path
+KB = Path(__file__).resolve().parent
+T = KB / "tools"
+# Run inside the harness's own environment (created by `./e5 setup`), so the extractors'
+# dependencies are there whichever python3 started us. `setup` itself must not re-exec:
+# it is what creates the environment.
+_VENV_PY = KB / ".venv-mcp" / "bin" / "python"
+if (_VENV_PY.exists() and Path(sys.executable).resolve() != _VENV_PY.resolve()
+        and sys.argv[1:2] != ["setup"]):
+    os.execv(str(_VENV_PY), [str(_VENV_PY), __file__, *sys.argv[1:]])
+sys.path.insert(0, str(T))
+
+
+def sh(*a):
+    sys.stdout.flush()          # a step header must print before the step's own output
+    return subprocess.call([sys.executable, *a])
+
+
+def _sub(rest, allowed, default):
+    return rest if rest and rest[0] in allowed else default
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help", "help"):
+        print(__doc__); return 0
+    cmd, rest = argv[0], argv[1:]
+
+    if cmd == "setup":     return sh(str(T / "setup.py"), *rest)
+    if cmd == "update":
+        # the harness repo itself: knowledge, extractors, plugin
+        if subprocess.call(["git", "-C", str(KB), "pull", "--ff-only"]):
+            print("git pull failed - resolve local changes in the harness repo first"); return 1
+        sh(str(T / "setup.py"), "--no-plugin")
+        import shutil
+        if shutil.which("claude"):
+            subprocess.call(["claude", "plugin", "marketplace", "update", "e5-platform-harness"])
+            subprocess.call(["claude", "plugin", "update", "e5-platform@e5-platform-harness"])
+            print("restart Claude Code to load the updated plugin")
+        return 0
+    if cmd == "init":      return sh(str(T / "init.py"), *rest)
+    if cmd == "sync" and rest[:1] == ["all"]:
+        # The whole update, in order. Each extractor reads the bare mirrors at the latest
+        # release and writes only graph/ (and the generated READMEs). The gates run last
+        # and include the content check of every authored hop and routing row.
+        steps = [("fetch mirrors (bare, into ~/.e5/cache)", ["mirror.py", "sync"]),
+                 ("check out the repos under platform/<system>/", ["checkouts.py", "sync"]),
+                 ("compile the JVM repos, read their bytecode", ["build_step.py"]),
+                 ("declared extractors (per profile)", ["sync.py", "run"]),
+                 ("code facts: entry points and calls", ["codegraph.py", "extract"]),
+                 ("task routes", ["async_graph.py", "extract"]),
+                 ("who serves and calls each RPC", ["rpc_graph.py", "extract"]),
+                 ("which task each GraphQL operation sends", ["gql_tasks.py", "extract"]),
+                 ("method-level call graph (tree-sitter, pyright)", ["call_graph.py", "extract"]),
+                 ("build dependencies", ["build_graph.py", "extract"]),
+                 ("consumer repos (customer workflows and apps)", ["consumers.py", "extract"]),
+                 ("newest library releases (JFrog)", ["lib_versions.py", "extract"]),
+                 ("generated READMEs and dependencies.md", ["gen_system_readmes.py"])]
+        if "--no-fetch" in rest:
+            steps = [x for x in steps if x[1][0] != "mirror.py"]
+        if "--no-build" in rest:
+            steps = [x for x in steps if x[1][0] != "build_step.py"]
+        if "--force" in rest:      # re-read every repo, even those whose commit did not move
+            steps = [(l, [*a, "--force"] if a[0] in ("build_step.py", "call_graph.py") else a)
+                     for l, a in steps]
+        # Advisory steps feed only the browsable checkouts and Level 2 (bytecode, the call
+        # graph). One repo that does not compile, or a missing pyright, must not stop the
+        # extractors and gates that every answer depends on.
+        advisory = {"checkouts.py", "build_step.py", "call_graph.py"}
+        warned = []
+        for label, argv in steps:
+            print(f"\n=== {label} " + "=" * max(0, 58 - len(label)))
+            if sh(str(T / argv[0]), *argv[1:]):
+                if argv[0] in advisory:
+                    warned.append(label)
+                    print(f"\n  (advisory) '{label}' reported problems above; continuing")
+                    continue
+                print(f"\nsync stopped: '{label}' failed. Nothing after it ran.")
+                return 1
+        print("\n=== citations whose code moved (dry run) " + "=" * 20)
+        sh(str(T / "cite_relocate.py"))
+        print("\n=== gates " + "=" * 52)
+        rc = main(["check"])
+        if warned:
+            print("\nadvisory steps with problems: " + "; ".join(warned))
+        return rc
+    if cmd == "sync":      return sh(str(T / "sync.py"), *rest)
+    if cmd == "kb":        return sh(str(T / "kb_nav.py"), *rest)
+    if cmd == "checkouts": return sh(str(T / "checkouts.py"), *(rest or ["status"]))
+    if cmd == "routing":   return sh(str(T / "check_routing.py"))
+    if cmd == "flows":     return sh(str(T / "task_flows.py"),
+                                     *_sub(rest, ("list", "show", "check", "facts"),
+                                           ["show", *rest] if rest else ["list"]))
+    if cmd == "cite":      return sh(str(T / "citations.py"),
+                                     *_sub(rest, ("report", "check", "bless", "drift", "facts"),
+                                           ["report"]))
+    if cmd == "estate":    return sh(str(T / "estate.py"),
+                                     *_sub(rest, ("report", "diff", "check", "accept", "subjects"),
+                                           ["report"]))
+    if cmd == "patterns":  return sh(str(T / "patterns.py"), *rest)
+    if cmd == "libs":      return sh(str(T / "build_graph.py"), *(rest or ["report"]))
+    if cmd == "catalog":   return sh(str(T / "catalog.py"), *rest)
+    if cmd == "probe":     return sh(str(T / "probe.py"), *rest)
+    if cmd == "codegraph": return sh(str(T / "codegraph.py"), *rest)
+    if cmd == "layers":    return sh(str(T / "scip_pilot.py"), *rest)
+    if cmd == "extract":
+        return subprocess.call([sys.executable, "-m", "extract.cli", *rest], cwd=str(KB))
+    if cmd == "workspace": return sh(str(T / "workspace.py"), *rest)
+    if cmd == "contest":   return sh(str(T / "contest.py"), *rest)
+    if cmd == "serve":     return sh(str(T / "mcp_server.py"), *rest)
+    if cmd == "fresh":
+        import kb_core as core
+        print(json.dumps(core.freshness(), indent=1)); return 0
+
+    if cmd == "check":
+        rc = 0
+        for name, script in (("plumbing", "check_plumbing.py"),
+                             ("injected-values", "check_no_injected_values.py"),
+                             ("catalog", "catalog.py"), ("routing", "check_routing.py"),
+                             ("card-provenance", "check_card_provenance.py"),
+                             ("library-skew", "build_graph.py"),
+                             ("task-flows", "task_flows.py"),
+                             ("citations", "citations.py"),
+                             ("estate-drift", "estate.py"),
+                             ("card-patterns", "patterns.py"),
+                             ("unserved-rpcs", "rpc_graph.py"),
+                             ("staleness", "check_staleness.py")):
+            print(f"\n=== {name} " + "=" * (60 - len(name)))
+            r = sh(str(T / script),
+                   *(["check"] if script in ("catalog.py", "build_graph.py",
+                                             "task_flows.py", "citations.py",
+                                             "estate.py", "rpc_graph.py")
+                     else []))
+            # Advisory gates describe the state of the ESTATE rather than of the change in
+            # front of you; a gate that fails every build for a pre-existing condition is a
+            # gate someone deletes.
+            if r and name not in ("staleness", "library-skew", "estate-drift",
+                                  "card-patterns", "unserved-rpcs"): rc = r
+        print()
+        return rc
+
+    if cmd == "unlock":
+        reason = rest[rest.index("--reason") + 1] if "--reason" in rest else None
+        if not reason:
+            print("refusing to unlock without --reason; the reason is the whole point")
+            return 2
+        mins = int(rest[rest.index("--minutes") + 1]) if "--minutes" in rest else 60
+        d = KB / ".e5"; d.mkdir(exist_ok=True)
+        (d / "unlock.json").write_text(json.dumps(
+            {"reason": reason, "expires_at": time.time() + mins * 60,
+             "granted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}))
+        with (d / "audit.log").open("a") as fh:
+            fh.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                                 "event": "unlock-granted", "reason": reason,
+                                 "minutes": mins}) + "\n")
+        print(f"edit gate unlocked for {mins} min. Logged to .e5/audit.log\n  reason: {reason}")
+        return 0
+    if cmd == "lock":
+        p = KB / ".e5" / "unlock.json"
+        if p.exists(): p.unlink(); print("gate re-locked")
+        else: print("gate was not unlocked")
+        return 0
+
+    print(f"unknown command {cmd!r}\n{__doc__}"); return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

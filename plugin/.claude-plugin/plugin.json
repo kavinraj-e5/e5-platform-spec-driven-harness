@@ -1,0 +1,15 @@
+{
+  "name": "e5-platform",
+  "description": "Spec-driven development harness for the E5 platform. Loads the platform overview at session start and navigates the knowledge base by path and exact name - no keyword search. User commands: /e5-init, /e5-sync, /e5-feature and /e5-bugfix (gated: UX + HLD or root cause, blast radius, LLD, then code), /e5-update-knowledge-base.",
+  "version": "0.9.0",
+  "author": {
+    "name": "E5 Platform Team"
+  },
+  "hooks": "./hooks/hooks.json",
+  "mcpServers": {
+    "e5-platform-kb": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/mcp_launch.sh",
+      "args": []
+    }
+  }
+}

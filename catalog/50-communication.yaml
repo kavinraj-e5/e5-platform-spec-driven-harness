@@ -1,0 +1,147 @@
+# =============================================================================
+# SYSTEM 5 of 5 - COMMUNICATION (the task fabric)
+# Audience: every other system. Nothing here is owned by one of them.
+#
+# AKST is a priority queue. It exists in TWO packagings of the SAME capability, which is
+# the fact the previous model could not state:
+#
+#   workflow plane   `akst`         a WORKER_MODE role inside the variant image,
+#                                   from com/e5/platform/core/akst/** in platform-core
+#   subsystem plane  `task-manager` its own image, from com/e5/akst/** in e5-akst-service
+#
+# They are SIBLING FORKS: neither depends on the other, and both emit protos into the
+# same Java package, so one classpath cannot hold both. Previously these sat in two
+# different domains with no edge between them.
+#
+# The task SDKs are the Published Language of this system. Every other system conforms
+# to them; none owns them. See REALISES edges in graph/build-graph.json.
+# =============================================================================
+
+components:
+  - name: task-manager
+    lifecycle: production
+    system: communication
+    kind: Deployable
+    plane: subsystem
+    audience: all
+    profile: subsystem/control
+    role: >
+      The STANDALONE AKST deployable, and the platform's Global Router. This is
+      e5-akst-service - a JFrog-published library that also builds its own image. It is a
+      SIBLING FORK of the akst code inside platform-core, not a layer on top of it: neither
+      depends on the other, and both emit protos into the same Java package so a single
+      classpath could not hold both. Confirmed running in QA as
+      e5-platform-ss-task-manager:v1.2.2-RELEASE-AKST-04-02-2026-001.
+    pod: task-manager
+    image: e5-platform-ss-task-manager
+    deployment: task-manager-pl-subsystem
+    serves: [TaskService]
+    source:
+      repo: akst-service
+      remote: https://github.com/element5inc/e5-akst-service.git
+      paths: [src/main/java/com/e5/akst/**]
+    realises: akst-priority-queue
+    also_published: com.e5:e5-akst-service
+
+  - name: task-reader
+    system: communication
+    kind: Deployable
+    plane: workflow
+    audience: all
+    profile: workflow/task-plane
+    role: >
+      Reads prioritised tasks when the in-memory task store is enabled. Deployed only when
+      `priority_enabled and inMemoryTaskStoreEnabled`, so it is absent from most namespaces.
+      Has its own image and no WORKER_MODE.
+    pod: task-reader
+    generated_by: libs/deployment-config-generator/services/workflow/task_reader.py:63
+    source:
+      repo: task-reader
+      remote: https://github.com/element5inc/e5-platform-task-reader.git
+      paths: [src/**]
+    conditional_on: priority_enabled and inMemoryTaskStoreEnabled
+
+  - name: state-service
+    lifecycle: production
+    system: communication
+    kind: Library
+    plane: none
+    audience: all
+    profile: build-input
+    role: >
+      Holds the AKST dequeue ordering - the platform's hottest query. Source:
+      element5inc/e5-state-service (group e5.state, rootProject StateService; found
+      2026-11-14 - it was recorded as compiled-only before). Consumers pin the published jar
+      (1.2.9), so a change reaches AKST only when akst-service and platform-core bump it.
+    source:
+      repo: state-service
+    artifact: e5.state:StateService
+    pinned_version: 1.2.9
+    pinned_by: platform-core/build.gradle
+    indexed_from: artifact
+
+  - name: task-sdk-java
+    lifecycle: production
+    system: communication
+    kind: Library
+    plane: none
+    audience: all
+    profile: contract/source
+    role: >
+      The task / TaskTransport wire protocol for every Java Component. Ground truth for the
+      task envelope - ranked above source and above documentation when they disagree. Source:
+      element5inc/e5-task-sdk-java (group e5.task.sdk.java; found 2026-11-14 - it was
+      recorded as artifact-only before).
+    source:
+      repo: task-sdk-java
+    artifact: e5.task.sdk.java:e5-task-sdk-java
+    pinned_version: 0.7.6
+    pinned_by: platform-core/build.gradle
+    indexed_from: artifact
+    realises: task-protocol
+
+  - name: task-sdk-python
+    lifecycle: production
+    system: communication
+    kind: Library
+    plane: none
+    audience: all
+    profile: contract/source
+    role: >
+      Source: element5inc/e5-task-sdk-python (no release branch; master declares 1.0.2 while
+      1.0.9 is published - found 2026-11-14).
+      The fb-worker side of the same task protocol. Why rf-fb-worker-core contains no proto:
+      its entire AKST contract arrives through this package.
+    source:
+      repo: task-sdk-python
+    artifact: e5_task_sdk_python
+    pinned_version: 1.0.9
+    pinned_by: rf-fb-worker-core/pyproject.toml
+    resolves_to: 1.0.9.post7
+    indexed_from: artifact
+    realises: task-protocol
+
+  - name: akst
+    lifecycle: production
+    system: communication
+    kind: Role
+    plane: workflow
+    audience: all
+    profile: workflow/task-plane
+    role: >
+      The in-namespace task queue. Accepts tasks for this workflow's roles and serves the
+      dequeue RPCs they poll. Optionally also acts as the LOCAL workflow router. NOT the same
+      deployable as the subsystem `task-manager`, despite both being AKST implementations -
+      see that Component's role note.
+    worker_mode: AKST_SERVICE
+    pod: akst
+    generated_by: libs/deployment-config-generator/services/workflow/akst.py:92
+    serves: [TaskService]
+    source:
+      repo: platform-core
+      remote: https://github.com/element5inc/e5-platform-core.git
+      paths:
+        - src/main/java/com/e5/platform/core/akst/**
+      contract_paths: [src/main/proto/**]
+    realises: akst-priority-queue
+

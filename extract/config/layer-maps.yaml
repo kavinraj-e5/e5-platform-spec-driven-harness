@@ -1,0 +1,157 @@
+# JOIN 3 of 3 — per-repo LAYER conventions.
+#
+# Four repos, four conventions, and exploration measured that inferring them from package
+# names is unreliable. The sharpest trap: `interface`'s package `grpc/impl/` holds GraphQL
+# service implementations, not gRPC servers - a classifier keying on the name will label
+# eight classes as gRPC entry points and be wrong about every one.
+#
+# Declared, not inferred. `confidence` says how far to trust a layer label from each repo;
+# where it is `low`, treat an automated intra-service trace as advisory.
+#
+# `confidence` ALSO declares how much of the repo the map claims to cover, and a test
+# enforces it (tools/test_artifacts_codegraph.py). Measured 2026-10-29, once tier 2 ran
+# estate-wide:
+#
+#     deployment-mgmt   838 classes    1% unlabelled   high
+#     interface         342 classes   93% unlabelled   low
+#     workflow-manager  605 classes   96% unlabelled   low
+#
+# The two low-confidence maps name the REQUEST PATH only - entry, service, client - and
+# say nothing about entities, DTOs, mappers or generated stubs. deployment-mgmt's names
+# all of those, which is why it is the one at 1%. So `high` must still cover its repo
+# (<10% unlabelled); `low` and `medium` must still match SOMETHING, because a map whose
+# packages have all been renamed is drift at any confidence. Widening a map's claim means
+# raising its `confidence` here, deliberately.
+#
+# A repo with NO row in this file is a third state. Its classes are labelled `undeclared`,
+# never guessed at: 13 of the 17 JVM repos are in that state, and inferring layers from
+# package names was measured unreliable - see the trap described above.
+
+rows:
+  - component: interface
+    confidence: low
+    note: >
+      Three coexisting shapes. `grpc/impl/` (8 classes) embeds the gRPC stub inside the
+      GraphQL service impl, so "service" and "outbound client" are the same class;
+      `service/impl/` (2) delegates to a separate client; `service/task/` is a third path
+      invoked from task callbacks rather than controllers. @Service appears on two
+      interfaces where it is a no-op and is absent from the other eight, so annotations
+      are not a layer signal here.
+    layers:
+      - name: entry
+        paths:
+          - src/main/java/e5/platform/ss/api/controller/**
+      - name: service
+        paths:
+          - src/main/java/e5/platform/ss/api/service/impl/**
+      - name: service-and-client
+        paths:
+          - src/main/java/e5/platform/ss/api/grpc/impl/**
+      - name: task-callback
+        paths:
+          - src/main/java/e5/platform/ss/api/service/task/**
+      - name: client
+        paths:
+          - src/main/java/e5/platform/ss/api/grpc/config/**
+
+  - component: deployment-mgmt
+    confidence: high
+    note: >
+      The most consistent in the estate and near-mechanical: RPC -> <Rpc>UseCase ->
+      repository interface -> single impl, with ~170 use-case classes each exposing one
+      execute(Request). No DI framework at all - use cases are `new`'d inline and
+      repositories come from one static factory with a single return site per type, so
+      every edge is a direct call. This is why it is the SCIP pilot.
+    layers:
+      - name: entry
+        paths:
+          - src/main/java/**/grpc/service/**
+      - name: usecase
+        paths:
+          - src/main/java/**/domain/usecase/**
+      - name: repo-iface
+        paths:
+          - src/main/java/**/domain/repository/**
+      - name: repo-impl
+        paths:
+          - src/main/java/**/data/repository/**
+      # The missing link in the documented chain. Use cases hold repositories as FIELDS
+      # obtained from a static factory, so the bytecode reference is to the factory, not
+      # to the repository - without this layer the usecase -> repo edge disappears and
+      # the chain looks like it stops at the use case.
+      - name: repo-factory
+        paths:
+          - src/main/java/**/data/factory/**
+      - name: scheduler
+        paths:
+          - src/main/java/**/scheduler/**
+      - name: generated-proto
+        paths:
+          - src/main/java/com/e5/management/proto/**
+      - name: entity
+        paths:
+          - src/main/java/**/data/entity/**
+      - name: dto
+        paths:
+          - src/main/java/**/domain/dto/**
+          - src/main/java/**/domain/record/**
+      - name: mapper
+        paths:
+          - src/main/java/**/data/mapper/**
+      - name: support
+        paths:
+          - src/main/java/**/utils/**
+          - src/main/java/**/exception/**
+          - src/main/java/**/constant/**
+  - component: workflow-ops
+    confidence: medium
+    note: >
+      Layered by directory - services/rpc/ -> helpers/ -> libs/ - but the client layer is
+      duplicated: 23 of 31 GRPCClient call sites are in helpers/, 3 in a parallel
+      libs/deployment_management_client.py, and 1 directly inside a servicer, skipping
+      helpers entirely. RPC names are also case-inconsistent, so joining an edge to a
+      proto RPC must be case-insensitive.
+    layers:
+      - name: entry
+        paths:
+          - src/services/rpc/**
+          - src/server.py
+      - name: helper
+        paths:
+          - src/helpers/**
+      - name: client
+        paths:
+          - src/libs/**
+      - name: state-machine
+        paths:
+          - src/services/deployment_action/**
+
+  - component: workflow-manager
+    confidence: low
+    note: >
+      Weakest in the estate; two architectures coexist. The gRPC path has a use-case layer
+      (server/usecase/, 3 classes); the poller path has none and reaches straight into
+      service/scaling/, service/deployment/ and service/releasecredential/ while holding
+      its own outbound stub AND its own Kafka producer. The `grpc/` package contains
+      inbound server code, outbound stub factories, constants and utils together, so the
+      package name predicts almost nothing. Treat intra-service layer labels here as
+      advisory; its OUTBOUND edges are the most precise on the platform thanks to the
+      ServiceType enum.
+    layers:
+      - name: entry
+        paths:
+          - src/main/java/com/e5/grpc/service/**
+          - src/main/java/com/e5/WorkflowManagerEngine.java
+      - name: poller
+        paths:
+          - src/main/java/com/e5/grpc/WorkflowManagerTaskHandler.java
+      - name: usecase
+        paths:
+          - src/main/java/com/e5/server/usecase/**
+      - name: service
+        paths:
+          - src/main/java/com/e5/service/**
+      - name: client
+        paths:
+          - src/main/java/com/e5/grpc/e5factory/**
+          - src/main/java/com/e5/client/**

@@ -1,0 +1,438 @@
+# TASK FLOWS: the ordered chain of hops for one kind of work across subsystems.
+#
+# Authored, because "and then what" is not derivable: a flow crosses several mechanisms,
+# branches on runtime state and resumes from a phase saved in a database row.
+#
+# Every step is VERIFIED, by `tools/task_flows.py check` and `tools/evidence.py flows`:
+#   * from/to are catalog components; via is a known mechanism
+#   * a `via: task` step agrees with the routing table (task-names.yaml)
+#   * evidence is `<repo> <path>:<line>`, and that line AT THE INDEXED RELEASE shows the
+#     `shows:` token (or a constant whose value is it). A line that has moved fails the
+#     gate instead of quietly becoming fiction.
+#
+# Rebuilt from the code on 2026-11-14 at: interface v1.7.6, workflow-manager v1.4.7,
+# workflow-ops v1.7.4, monitoring-service v1.5.9, dynamic-scaling v1.3.2,
+# deployment-mgmt v1.9.8, event-processor v1.2.1, workflow-api v1.5.0,
+# webhook-service v1.4.0, rf-fb-worker-core v1.1.14. 25 of the previous 33 evidence lines
+# no longer showed their hop; the WRP flow wrongly said the task was unhandled.
+#
+# `carries:` names the payload, never the channel. Kafka topic names are deploy-time
+# configuration and are never written here.
+#
+# SHAPE
+#   name, summary, applies_to {task_names | task_types}
+#   steps: from, to, via (task|grpc|kafka|response|poll|http), carries, shows,
+#          condition (optional: the step does not always run), evidence
+
+flows:
+  - name: standard-subsystem-task
+    summary: >
+      The default shape. interface records the task in deployment-mgmt (performTask returns
+      the task id), then sends a TaskCreate envelope to task-manager (AKST). AKST queues it
+      on the owning subsystem's virtual queue; the subsystem polls, does the work and
+      replies TaskComplete through AKST. interface recognises the reply by its namespace
+      and persists the result in deployment-mgmt. No subsystem-to-subsystem hop.
+    applies_to:
+      task_names:
+        - TERMINATE_WORKFLOW
+        - SOFT_TERMINATE_WORKFLOW
+        - PAUSE_OR_RESUME_APP
+        - CREDENTIAL_RELEASE
+        - DEPLOYMENT_HEALTH_CHECK
+        - UPDATE_DEPLOYMENT_SCHEDULE_STATE
+        - EXPORT_STATE
+        - IMPORT_STATE
+        - HOLD_OR_RESUME_WF_TRIGGER
+    steps:
+      - from: interface
+        to: deployment-mgmt
+        via: grpc
+        carries: performTask (records the task, returns its id)
+        shows: performTask
+        evidence: interface src/main/java/e5/platform/ss/api/grpc/impl/TaskServiceImpl.java:529
+      - from: interface
+        to: task-manager
+        via: kafka
+        carries: TaskCreate envelope
+        shows: sendTaskToTaskManager
+        evidence: interface src/main/java/e5/platform/ss/api/service/impl/TaskManagerHelperImpl.java:111
+      - from: task-manager
+        to: HANDLER
+        via: task
+        carries: TASK_NAME
+        shows: workflowManagerVQ
+        evidence: interface src/main/java/e5/platform/ss/api/taskmanager/protocol/TaskManagerProtocolBuilder.java:84
+      - from: HANDLER
+        to: task-manager
+        via: response
+        carries: TaskComplete
+        shows: TaskComplete
+        evidence: monitoring-service src/main/java/com/e5/actions/TaskAction.java:44
+      - from: task-manager
+        to: interface
+        via: kafka
+        carries: TaskComplete
+        shows: TaskComplete
+        evidence: interface src/main/java/e5/platform/ss/api/kafka/service/KafkaStreamService.java:47
+      - from: interface
+        to: deployment-mgmt
+        via: grpc
+        carries: updateTaskResponse
+        shows: updateTaskResponse
+        evidence: interface src/main/java/e5/platform/ss/api/grpc/impl/TaskServiceImpl.java:442
+
+  - name: scale-app-worker
+    summary: >
+      workflow-manager orchestrates rather than answers. It disables the DSS subscription,
+      reads pod state and branches. If replicas must come down first it saves
+      phase SCALE_DOWN in workflow_manager_state and sends one scale-down task per replica
+      to fb-worker. On each fb-worker TaskComplete (TaskResponseHandler,
+      handleScaleAppWorkerTaskCompleteCommand) it calls WorkflowOps DisableDeployment for
+      that pod, then sends workflow-ops a DEPLOYMENT_ACTION task to redeploy. When that
+      redeploy's TaskComplete returns (completeScaleAppWorkerTask), it reports completion
+      back through AKST.
+    applies_to:
+      task_names:
+        - FB_WORKER_POD_SCALE_APP_WORKER
+    steps:
+      - from: interface
+        to: workflow-manager
+        via: task
+        carries: FB_WORKER_POD_SCALE_APP_WORKER
+        shows: FbWorkerPodScaleAppWorker
+        evidence: workflow-manager src/main/java/com/e5/grpc/WorkflowManagerTaskHandler.java:120
+      - from: workflow-manager
+        to: deployment-mgmt
+        via: grpc
+        carries: disableDssSubscription
+        shows: disableDssSubscription
+        evidence: workflow-manager src/main/java/com/e5/grpc/WorkflowManagerTaskHandler.java:260
+      - from: workflow-manager
+        to: deployment-mgmt
+        via: grpc
+        carries: getFbWorkerPodDetails
+        shows: getFbWorkerPodDetails
+        evidence: workflow-manager src/main/java/com/e5/grpc/WorkflowManagerTaskHandler.java:263
+      - from: workflow-manager
+        to: deployment-mgmt
+        via: grpc
+        carries: saveWorkflowManagerRunStatus
+        shows: saveWorkflowManagerRunStatus
+        condition: scale-down needed - parks phase SCALE_DOWN for the resume
+        evidence: workflow-manager src/main/java/com/e5/grpc/WorkflowManagerTaskHandler.java:326
+      - from: workflow-manager
+        to: fb-worker
+        via: task
+        carries: SCALE_DOWN
+        shows: FbWorkerScaleDown
+        condition: scale-down needed - one task per replica to remove
+        evidence: workflow-manager src/main/java/com/e5/service/scaling/ScaleAppWorkerService.java:127
+      - from: fb-worker
+        to: workflow-manager
+        via: response
+        carries: TaskComplete
+        shows: TaskComplete
+        condition: scale-down needed - one response per scale-down task
+        evidence: rf-fb-worker-core e5_rf_fb_worker_core/FBCore.py:579
+      - from: workflow-manager
+        to: workflow-ops
+        via: grpc
+        carries: DisableDeployment
+        shows: disableDeployment
+        condition: on each scale-down response, once per pod
+        evidence: workflow-manager src/main/java/com/e5/consumer/TaskResponseHandler.java:491
+      - from: workflow-manager
+        to: workflow-ops
+        via: task
+        carries: DEPLOYMENT_ACTION
+        shows: DEPLOYMENT_ACTION
+        condition: redeploy with the new replica count
+        evidence: workflow-manager src/main/java/com/e5/service/scaling/ScaleAppWorkerService.java:605
+      - from: workflow-ops
+        to: workflow-manager
+        via: response
+        carries: TaskComplete
+        shows: TaskComplete
+        evidence: workflow-ops src/helpers/async_task_manager.py:296
+      - from: workflow-manager
+        to: interface
+        via: response
+        carries: TaskComplete
+        shows: sendTaskCompletedToTaskManager
+        evidence: workflow-manager src/main/java/com/e5/consumer/TaskResponseHandler.java:410
+
+  - name: dss-triggered-deployment-toggle
+    summary: >
+      A flow that does not start at interface. dynamic-scaling decides the replica change,
+      records the scaling request in deployment-mgmt (createDssTask) and sends the task to
+      task-manager itself: an E5_WF_MANAGER task with fbName ENABLE_DEPLOYMENT (scale up)
+      or DISABLE_DEPLOYMENT (scale down). workflow-manager handles it. ENABLE calls
+      WorkflowOps EnableDeployment. DISABLE sends scale-down tasks to fb-worker and, as each
+      completes, calls WorkflowOps DisableDeployment.
+    applies_to:
+      task_names:
+        - ENABLE_DEPLOYMENT
+        - DISABLE_DEPLOYMENT
+    steps:
+      - from: dynamic-scaling
+        to: deployment-mgmt
+        via: grpc
+        carries: createDssTask (records the scaling request)
+        shows: createDssTask
+        evidence: dynamic-scaling src/main/java/e5/platform/ss/scaling/grpc/DssGrpcClient.java:138
+      - from: dynamic-scaling
+        to: task-manager
+        via: kafka
+        carries: TaskCreate envelope (E5_WF_MANAGER, ENABLE_DEPLOYMENT / DISABLE_DEPLOYMENT)
+        shows: sendTaskToTaskManager
+        evidence: dynamic-scaling src/main/java/e5/platform/ss/scaling/service/ScaleEngineProcessor.java:370
+      - from: task-manager
+        to: workflow-manager
+        via: task
+        carries: ENABLE_DEPLOYMENT
+        shows: ENABLE_DEPLOYMENT
+        evidence: workflow-manager src/main/java/com/e5/grpc/WorkflowManagerTaskHandler.java:122
+      - from: workflow-manager
+        to: workflow-ops
+        via: grpc
+        carries: EnableDeployment
+        shows: enableDeployment
+        condition: ENABLE_DEPLOYMENT
+        evidence: workflow-manager src/main/java/com/e5/service/deployment/EnableDeploymentService.java:166
+      - from: workflow-manager
+        to: fb-worker
+        via: task
+        carries: SCALE_DOWN
+        shows: sendScaleDownTasks
+        condition: DISABLE_DEPLOYMENT - one task per replica to remove
+        evidence: workflow-manager src/main/java/com/e5/grpc/WorkflowManagerTaskHandler.java:1292
+      - from: fb-worker
+        to: workflow-manager
+        via: response
+        carries: TaskComplete
+        shows: TaskComplete
+        condition: DISABLE_DEPLOYMENT
+        evidence: rf-fb-worker-core e5_rf_fb_worker_core/FBCore.py:579
+      - from: workflow-manager
+        to: workflow-ops
+        via: grpc
+        carries: DisableDeployment
+        shows: disableDeployment
+        condition: DISABLE_DEPLOYMENT - once per completed pod
+        evidence: workflow-manager src/main/java/com/e5/consumer/TaskResponseHandler.java:562
+
+  - name: customer-webhook
+    summary: >
+      Workflow-submission webhooks. No AKST, no virtual queue, no interface. workflow-api
+      publishes a CloudEvents webhook request; webhook-service consumes it, delivers it over
+      HTTP with retry and a dead-letter queue, and emits an audit event. Not the platform
+      event pipeline (event-store -> event-processor), which has different producers.
+    applies_to:
+      task_types:
+        - webhook
+    steps:
+      - from: workflow-api
+        to: webhook-service
+        via: kafka
+        carries: CloudEvents v1.0 webhook request
+        shows: cloudEventsKafkaTemplate
+        evidence: workflow-api src/main/java/com/company/workflow/integration/notification/WebhookRequestProducer.java:115
+      - from: webhook-service
+        to: client-ehr
+        via: http
+        carries: webhook delivery
+        shows: httpClient
+        evidence: webhook-service src/main/java/com/webhook/service/integration/webhookcall/WebhookHttpClient.java:135
+      - from: webhook-service
+        to: audit-service
+        via: kafka
+        carries: CloudEvents audit event (CloudEventAuditEvent)
+        shows: kafkaTemplate
+        evidence: webhook-service src/main/java/com/webhook/service/integration/audit/AuditKafkaProducer.java:94
+
+  - name: platform-event-pipeline
+    summary: >
+      Platform events. event-store forwards each event; event-processor consumes it, looks
+      up the matching webhook subscriptions in deployment-mgmt, and publishes one dispatch
+      record per subscription for the webhook-dispatcher Lambda. event-processor does NOT
+      feed webhook-service.
+    applies_to:
+      task_types:
+        - platform-event
+    steps:
+      - from: event-store
+        to: event-processor
+        via: kafka
+        carries: platform event envelope
+        shows: webhookListener
+        evidence: event-processor src/main/java/e5/platform/ss/event/processor/service/KafkaListenerService.java:40
+      - from: event-processor
+        to: deployment-mgmt
+        via: grpc
+        carries: findWebhooksByEventTypeAndDeploymentVersionId (subscription lookup)
+        shows: findWebhooksByEventTypeAndDeploymentVersionId
+        evidence: event-processor src/main/java/e5/platform/ss/event/processor/service/impl/GrpcServiceImpl.java:34
+      - from: event-processor
+        to: webhook-dispatcher
+        via: kafka
+        carries: webhook dispatch record (WebhookKafkaDTO)
+        shows: sendToKafka
+        condition: one per matching subscription; the consumer (an AWS Lambda) is not indexed
+        evidence: event-processor src/main/java/e5/platform/ss/event/processor/service/impl/EventProcessorServiceImpl.java:102
+
+  - name: workflow-resource-provisioning
+    summary: >
+      HANDLED (corrected 2026-11-14; an earlier version of this flow said the task was
+      dropped). interface routes WORKFLOW_RESOURCE_PROVISIONING to workflow-ops. Its poller
+      recognises it as an async task (polling_service.py:133-135) and schedules
+      async_service.handle, which calls resource_provisioning.provision_resources_async.
+      That reports TaskComplete through update_task_completion.
+    applies_to:
+      task_names:
+        - WORKFLOW_RESOURCE_PROVISIONING
+    steps:
+      - from: interface
+        to: workflow-ops
+        via: task
+        carries: WORKFLOW_RESOURCE_PROVISIONING
+        shows: WORKFLOW_RESOURCE_PROVISIONING
+        evidence: interface src/main/java/e5/platform/ss/api/service/impl/TaskManagerHelperImpl.java:164
+      - from: workflow-ops
+        to: workflow-ops
+        via: poll
+        carries: WORKFLOW_RESOURCE_PROVISIONING (scheduled as an async task)
+        shows: WORKFLOW_RESOURCE_PROVISIONING
+        evidence: workflow-ops src/async_service.py:111
+      - from: workflow-ops
+        to: interface
+        via: response
+        carries: TaskComplete
+        shows: update_task_completion
+        evidence: workflow-ops src/services/resource_provisioning.py:207
+
+  - name: deployment-action
+    summary: >
+      The longest chain. workflow-ops runs DEPLOYMENT_ACTION as an async state machine
+      (INIT, CONFIG_FETCHED, PAUSE_APPS, SCALE_DOWN_FB_WORKERS, JENKINS_INITIATED,
+      RESUME_INITIATED and more). It reads the deployed version from deployment-mgmt, pauses
+      every running app and scales down every fb worker by sending tasks BACK to
+      workflow-manager, waits for each completion, runs the Jenkins job, then resumes and
+      reports TaskComplete. Internal state transitions are not modelled as hops.
+    applies_to:
+      task_names:
+        - DEPLOYMENT_ACTION
+        - FbWorkerPodScaleDown
+    steps:
+      - from: interface
+        to: workflow-ops
+        via: task
+        carries: DEPLOYMENT_ACTION
+        shows: DEPLOYMENT_ACTION
+        evidence: interface src/main/java/e5/platform/ss/api/service/impl/TaskManagerHelperImpl.java:132
+      - from: workflow-ops
+        to: deployment-mgmt
+        via: grpc
+        carries: GetDeployedVersionDetails
+        shows: GetDeployedVersionDetails
+        evidence: workflow-ops src/helpers/async_workflow.py:393
+      - from: workflow-ops
+        to: workflow-manager
+        via: task
+        carries: PAUSE_RESUME_APP
+        shows: PAUSE_RESUME_APP
+        condition: one task per RUNNING app
+        evidence: workflow-ops src/helpers/async_task_manager.py:55
+      - from: workflow-ops
+        to: workflow-manager
+        via: task
+        carries: FbWorkerPodScaleDown
+        shows: FbWorkerPodScaleDown
+        condition: one task per app with fb workers
+        evidence: workflow-ops src/helpers/async_task_manager.py:138
+      - from: workflow-manager
+        to: workflow-ops
+        via: response
+        carries: TaskComplete
+        shows: sendTaskCompletedToTaskManager
+        condition: one response per scale-down task, once its pods are gone
+        evidence: workflow-manager src/main/java/com/e5/consumer/TaskResponseHandler.java:332
+      - from: workflow-ops
+        to: jenkins
+        via: http
+        carries: Jenkins deployment job
+        shows: trigger_job
+        evidence: workflow-ops src/services/deployment_action/handle_jenkins_state.py:271
+      - from: workflow-ops
+        to: interface
+        via: response
+        carries: TaskComplete
+        shows: TaskComplete
+        evidence: workflow-ops src/helpers/async_task_manager.py:296
+
+  - name: fb-worker-scale-down
+    summary: >
+      The inner leg of scale-app-worker, dss-triggered-deployment-toggle and
+      deployment-action. workflow-manager sends one scale-down task per replica to the
+      fb-worker pod (task type fb-pod-scale-down, fbName FbWorkerScaleDown). The worker
+      tears down and replies TaskComplete, and workflow-manager asks workflow-ops to remove
+      the pod. Two spellings, two different hops: workflow-ops asks workflow-manager with
+      `FbWorkerPodScaleDown`; workflow-manager asks the worker with `FbWorkerScaleDown`.
+    applies_to:
+      task_names:
+        - SCALE_DOWN
+    steps:
+      - from: workflow-manager
+        to: fb-worker
+        via: task
+        carries: FbWorkerScaleDown
+        shows: FbWorkerScaleDown
+        condition: one task per replica to remove
+        evidence: workflow-manager src/main/java/com/e5/service/scaling/ScaleAppWorkerService.java:127
+      - from: fb-worker
+        to: workflow-manager
+        via: response
+        carries: TaskComplete
+        shows: TaskComplete
+        evidence: rf-fb-worker-core e5_rf_fb_worker_core/FBCore.py:579
+      - from: workflow-manager
+        to: workflow-ops
+        via: grpc
+        carries: DisableDeployment
+        shows: disableDeployment
+        condition: once per completed pod
+        evidence: workflow-manager src/main/java/com/e5/consumer/TaskResponseHandler.java:281
+
+  - name: restart-workflow-components
+    summary: >
+      Self-heal. monitoring-service (and interface, and credential-monitor, a
+      monitoring-service fork) sends a RestartWorkflow task to workflow-ops. workflow-ops
+      handles it synchronously (polling_service.__handle), restarts the workflow
+      components, and replies TaskComplete; monitoring-service consumes the result.
+    applies_to:
+      task_names:
+        - RestartWorkflow
+    steps:
+      - from: monitoring-service
+        to: task-manager
+        via: kafka
+        carries: TaskCreate envelope (fbName RestartWorkflow)
+        shows: RestartWorkflow
+        evidence: monitoring-service src/main/java/com/e5/service/MonitoringServiceImpl.java:402
+      - from: task-manager
+        to: workflow-ops
+        via: task
+        carries: RestartWorkflow
+        shows: RestartWorkflow
+        evidence: workflow-ops src/polling_service.py:100
+      - from: workflow-ops
+        to: monitoring-service
+        via: response
+        carries: TaskComplete
+        shows: update_task_completion
+        evidence: workflow-ops src/services/workflow_service.py:76
+      - from: monitoring-service
+        to: monitoring-service
+        via: response
+        carries: RestartWorkflow result
+        shows: RestartWorkflow
+        evidence: monitoring-service src/main/java/com/e5/service/MonitoringServiceImpl.java:447

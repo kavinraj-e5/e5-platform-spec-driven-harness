@@ -1,0 +1,15 @@
+{
+ "audit-service": "e5-platform-ss-audit-service:v1.1.0-RELEASE-AUDIT-SERVICE-04-03-2026-001",
+ "dynamic-scaling-service-ss": "e5-ss-dynamic-scaling-service:v1.1.2-DYNAMIC-SCALING-SERVICE-11-06-2026-002",
+ "e5-platform-ss-credential-monitor": "e5-platform-ss-credential-monitor:v1.1.0-RELEASE-CREDENTIAL-MONITOR-27-01-2026-001",
+ "event-processor": "e5-platform-ss-event-processor:v1.2.0-RELEASE-PROCESSOR-16-02-2026-001",
+ "event-store": "e5-platform-ss-event-store:v1.1.3-RELEASE-STORE-07-04-2026-001",
+ "interface-ss": "e5-platform-ss-interface:v1.6.8-RELEASE-INTERFACE-10-07-2026-001",
+ "mgmt-service": "e5-platform-ss-deployment-mgmt-service:v1.6.10-RELEASE-MGMT-16-07-2026-001",
+ "monitoring-service": "e5-platform-ss-monitoring-service:v1.5.6-RELEASE-MONITOR-02-07-2026-003",
+ "task-manager": "e5-platform-ss-task-manager:v1.2.2-RELEASE-AKST-04-02-2026-001",
+ "webhook-service": "e5-platform-ss-webhook-service:v1.3.3-RELEASE-WEBHOOK-SERVICE-29-06-2026-001",
+ "workflow-api": "e5-platform-ss-workflow-api:v1.4.2-RELEASE-WORKFLOW-API-10-06-2026-001",
+ "workflow-manager-service": "e5-platform-ss-workflow-manager-service:v1.3.2-WORKFLOW-MANAGER-16-07-2026-001",
+ "workflow-ops": "e5-platform-ss-workflow-ops:v1.6.3-2026-JUL-13-001"
+}

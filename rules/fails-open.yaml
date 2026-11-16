@@ -1,0 +1,28 @@
+# "Fails open": a probe that cannot tell you it failed, so its caller reads failure as
+# health. One card, and the shape is general enough to be worth standing.
+rules:
+  - id: probe-returns-null-after-swallowing
+    languages: [java]
+    severity: ERROR
+    message: >-
+      This method initialises its result to null, assigns it inside a try, swallows the
+      exception, and returns the result. Every failure mode is indistinguishable from
+      "nothing found" at the call site.
+    metadata:
+      e5-card: knowledge/known-issues/monitoring-health-check-fails-open.md
+      e5-expect: present
+      e5-at:
+        - monitoring-service src/main/java/com/e5/service/monitors/HealthMonitor.java:172
+    patterns:
+      - pattern: |
+          $T $V = null;
+          ...
+          try { ... } catch ($E $X) { ... }
+          ...
+          return $V;
+      - pattern-not: |
+          $T $V = null;
+          ...
+          try { ... } catch ($E $X) { ... throw $Y; ... }
+          ...
+          return $V;

@@ -1,0 +1,37 @@
+# Values written into code that the configuration system is supposed to supply. The
+# rules are STRUCTURAL - none of them names a queue or a schema - because a topic or
+# queue NAME is injected at deploy time and must not be recorded here either.
+# See docs/2026-10-13-extraction-redesign.md.
+rules:
+  - id: native-query-hardcodes-a-schema
+    languages: [java]
+    severity: ERROR
+    message: >-
+      A schema qualifier is baked into a native SQL string. hibernate.default_schema
+      cannot rewrite a literal, so this query ignores the schema every deployment-config
+      sets.
+    metadata:
+      e5-card: knowledge/known-issues/dms-hardcoded-dev-schema-in-native-query.md
+      e5-expect: present
+      e5-at:
+        - deployment-mgmt src/main/java/com/e5/deploymentservices/data/repository/DeploymentStateRepositoryImpl.java:29
+    pattern-regex: '"[^"]*\bFROM\s+(dev|qa|test|stage|prod)\.[A-Za-z_]'
+
+  - id: virtual-queue-name-is-a-literal
+    languages: [java]
+    severity: WARNING
+    message: >-
+      The virtual queue this service polls comes from a string literal, not from its
+      config. The queue cannot then be changed per environment, however many
+      deployment-configs declare it.
+    metadata:
+      e5-card: knowledge/known-issues/monitoring-vq-hardcoded-ignores-config.md
+      e5-expect: present
+      e5-at:
+        - monitoring-service src/main/java/com/e5/service/MonitoringServiceImpl.java:333
+        - credential-monitor src/main/java/com/e5/service/MonitoringServiceImpl.java:200
+    patterns:
+      - pattern: |
+          String $Q = "...";
+          ...
+          $X.getTask($Q, ...);

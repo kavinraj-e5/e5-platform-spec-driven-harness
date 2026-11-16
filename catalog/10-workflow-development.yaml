@@ -1,0 +1,164 @@
+# =============================================================================
+# SYSTEM 1 of 5 - WORKFLOW DEVELOPMENT
+# Audience: workflow developers.
+#
+# How a workflow is built and shipped. Everything here except variant-scaffolding is a
+# LIBRARY: it is never deployed on its own. variant-scaffolding is the one deployable -
+# it inlines platform-core + AppSDK + the workflow jar into a single fat jar
+# (build.gradle `jar{ from configurations.runtimeClasspath.collect{zipTree(it)} }`) and
+# the resulting image runs FIVE different roles, selected at runtime by WORKER_MODE
+# (src/main/java/e5/runner/App.java:13).
+#
+# That is why the five Roles below have no image of their own. They are not five
+# deployables; they are five values of one env var on one image.
+# =============================================================================
+
+components:
+  - name: variant-scaffolding
+    system: workflow-development
+    kind: Deployable
+    plane: workflow
+    audience: workflow-developer
+    profile: build-input
+    role: >
+      The deployable wrapper. Almost no logic of its own - a 27-line runner plus a Helm chart
+      - whose job is to COMPOSE the platform library, the app SDK and the workflow jar into
+      the single variant image that five WORKER_MODE roles then run.
+    source:
+      repo: variant-scaffolding
+      remote: https://github.com/element5inc/wf-variant-scaffolding.git
+      paths: [src/**, build.gradle, ci/**]
+    composes: [platform.core:e5-platform-core, e5.functionblock:AppSDK, e5.workflow:SampleWorkflow]
+
+  - name: platform-core
+    lifecycle: production
+    system: workflow-development
+    kind: Library
+    plane: none
+    audience: workflow-developer
+    profile: build-input
+    role: >
+      The workflow-plane base library. ONE jar that becomes SIX roles: it carries the WF
+      engine, worker, aggregator, trigger, RPA gateway and the in-namespace AKST, selected at
+      runtime by WORKER_MODE. It is NEVER DEPLOYED - variant-scaffolding inlines it into the
+      variant fat jar. Declared `java-library` and the only repo in the estate that re-exports
+      its dependencies with gradle `api`, so every consumer compiles against task-sdk 0.7.6,
+      StateService 1.2.9 and the notification-hub SDK 0.2.2 transitively whether it asks for
+      them or not.
+    source:
+      repo: platform-core
+      remote: https://github.com/element5inc/e5-platform-core.git
+    publishes: platform.core:e5-platform-core
+    pinned_version: 1.9.12
+    indexed_from: composed
+    covered_by: [wf-engine, wf-worker, wf-aggregator, wf-trigger, rpa-gateway, akst]
+
+  - name: wf-scaffolding
+    lifecycle: production
+    system: workflow-development
+    kind: Library
+    plane: none
+    audience: workflow-developer
+    profile: build-input
+    role: >
+      The seed project for a new workflow. A real compilable Gradle project that is COPIED AND
+      RENAMED to start a workflow, with Gradle tasks that generate Java from JSON schemas. Its
+      build asserts the rename convention, which is how you can tell it is meant to be copied
+      rather than depended on. Publishes itself as e5.workflow:SampleWorkflow.
+    source:
+      repo: wf-scaffolding
+      remote: https://github.com/element5inc/wf-scaffolding.git
+      paths: [src/**, build.gradle]
+    publishes: e5.workflow:SampleWorkflow
+
+  - name: rpa-gateway
+    system: workflow-development
+    kind: Role
+    plane: workflow
+    audience: workflow-developer
+    profile: workflow/execution
+    role: >
+      Bridges to RPA automation. Explicitly REJECTS task protocol v2, so it is pinned to the
+      v1 envelope while the rest of the plane moves on.
+    worker_mode: RPA_GATEWAY
+    pod: rpa-gateway
+    generated_by: libs/deployment-config-generator/services/workflow/rpa_gateway.py:64
+    source:
+      repo: platform-core
+      paths:
+        - src/main/java/com/e5/platform/core/rpagateway/**
+
+  - name: wf-aggregator
+    lifecycle: production
+    system: workflow-development
+    kind: Role
+    plane: workflow
+    audience: workflow-developer
+    profile: workflow/execution
+    role: >
+      Aggregates run output and reports it onward. ONE POD PER CONFIGURED AGGREGATOR, named
+      wf-aggregator-{name} and selected at runtime by a second env var AGGREGATOR_NAME - so
+      this Component expands to N pods, not one.
+    worker_mode: WF_AGGREGATOR
+    pod: wf-aggregator-{AGGREGATOR_NAME}
+    generated_by: libs/deployment-config-generator/services/workflow/aggregator.py:144
+    source:
+      repo: platform-core
+      paths:
+        - src/main/java/com/e5/platform/core/event/receiver/**
+
+  - name: wf-engine
+    lifecycle: production
+    system: workflow-development
+    kind: Role
+    plane: workflow
+    audience: workflow-developer
+    profile: workflow/execution
+    role: >
+      Drives a workflow run. Polls AKST for inbound actions, initialises the inbound handler
+      chain, and owns the CORE_INTERNAL session. The entry point of a run.
+    worker_mode: WF_ENGINE
+    pod: wf-engine
+    generated_by: libs/deployment-config-generator/services/workflow/engine.py:80
+    source:
+      repo: platform-core
+      paths:
+        - src/main/java/com/e5/platform/core/wre/engine/**
+
+  - name: wf-trigger
+    system: workflow-development
+    kind: Role
+    plane: workflow
+    audience: workflow-developer
+    profile: workflow/execution
+    role: >
+      Starts a workflow run on a schedule. A one-shot CronJob rather than a long-lived pod,
+      and excluded from the standard health service.
+    worker_mode: WF_TRIGGER
+    pod: wf-trigger
+    generated_by: libs/deployment-config-generator/services/workflow/trigger.py:17
+    source:
+      repo: platform-core
+      paths:
+        - src/main/java/com/e5/platform/core/trigger/**
+
+  - name: wf-worker
+    lifecycle: production
+    system: workflow-development
+    kind: Role
+    plane: workflow
+    audience: workflow-developer
+    profile: workflow/execution
+    role: >
+      Executes the individual steps of a workflow as Temporal activities - function, decision,
+      transformation and intervention blocks. The Temporal worker.
+    worker_mode: WF_WORKER
+    pod: wf-worker
+    generated_by: libs/deployment-config-generator/services/workflow/worker.py:165
+    source:
+      repo: platform-core
+      paths:
+        - src/main/java/com/e5/platform/core/wre/engine/worker/**
+        - src/main/java/com/e5/platform/core/activity/**
+        - src/main/java/com/e5/platform/core/executionblock/**
+

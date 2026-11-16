@@ -1,0 +1,184 @@
+# Task routing: which subsystem handles each task, and who sends it.
+#
+# The join between repositories is the TASK NAME / fbName, a string one repo writes and
+# another compares. No proto or schema carries it, so this file is authored. Every row was
+# re-verified against the code at the indexed release on 2026-11-14:
+#   interface        release/v1.7.6   workflow-manager release/v1.4.7
+#   workflow-ops     release/v1.7.4   monitoring-service release/v1.5.9
+#   dynamic-scaling  release/v1.3.2   credential-monitor release/v1.1.1
+#   rf-fb-worker-core release/v1.1.14
+#
+# task_name   the name the producer uses (for interface: the TaskManagerHelperImpl case)
+# task_type   the taskType set on the envelope
+# fb_name     the value the handler dispatches on (taskPayload.fbName)
+# produced_by / produced_at   the sending component and its code site
+# handled_by / site / line    the handling component and the dispatch branch
+# A null means the code does not show it. It is never filled in by guessing.
+
+rows:
+  # ---- workflow-manager: if-chain on fbName, WorkflowManagerTaskHandler.pollForTask
+  - task_name: PAUSE_OR_RESUME_APP
+    task_type: E5_WF_MANAGER
+    fb_name: PAUSE_RESUME_APP
+    produced_by: interface
+    produced_at: src/main/java/e5/platform/ss/api/service/impl/TaskManagerHelperImpl.java:126
+    handled_by: workflow-manager
+    site: src/main/java/com/e5/grpc/WorkflowManagerTaskHandler.java
+    line: 98
+
+  - task_name: TERMINATE_WORKFLOW
+    task_type: E5_WF_MANAGER
+    fb_name: TERMINATE_WORKFLOW
+    produced_by: interface
+    produced_at: src/main/java/e5/platform/ss/api/service/impl/TaskManagerHelperImpl.java:152
+    handled_by: workflow-manager
+    site: src/main/java/com/e5/grpc/WorkflowManagerTaskHandler.java
+    line: 103
+
+  - task_name: SOFT_TERMINATE_WORKFLOW
+    task_type: E5_WF_MANAGER
+    fb_name: SOFT_TERMINATE_WORKFLOW
+    produced_by: interface
+    produced_at: src/main/java/e5/platform/ss/api/service/impl/TaskManagerHelperImpl.java:156
+    handled_by: workflow-manager
+    site: src/main/java/com/e5/grpc/WorkflowManagerTaskHandler.java
+    line: 104
+
+  - task_name: FbWorkerPodScaleDown
+    task_type: E5_WF_MANAGER
+    fb_name: FbWorkerPodScaleDown
+    produced_by: workflow-ops
+    produced_at: src/services/deployment_action/handle_scale_down_fb_workers.py:98 (sent by src/helpers/async_task_manager.py:132-138)
+    handled_by: workflow-manager
+    site: src/main/java/com/e5/grpc/WorkflowManagerTaskHandler.java
+    line: 109
+
+  - task_name: SCALE_UP_WORKER
+    task_type: null
+    fb_name: SCALE_UP_WORKER
+    produced_by: null            # no producer in any indexed repo at its release
+    produced_at: null
+    handled_by: workflow-manager
+    site: src/main/java/com/e5/grpc/WorkflowManagerTaskHandler.java
+    line: 111
+
+  - task_name: CREDENTIAL_RELEASE
+    task_type: RELEASE_CREDENTIAL
+    fb_name: CredentialRelease
+    produced_by: interface
+    produced_at: src/main/java/e5/platform/ss/api/service/task/CredentialReleaseTaskService.java:152
+    handled_by: workflow-manager
+    site: src/main/java/com/e5/grpc/WorkflowManagerTaskHandler.java
+    line: 118
+
+  - task_name: FB_WORKER_POD_SCALE_APP_WORKER
+    task_type: SCALE_APP_WORKER
+    fb_name: FbWorkerPodScaleAppWorker
+    produced_by: interface
+    produced_at: src/main/java/e5/platform/ss/api/service/task/FbWorkerPodScalingService.java:112
+    handled_by: workflow-manager
+    site: src/main/java/com/e5/grpc/WorkflowManagerTaskHandler.java
+    line: 120
+
+  - task_name: ENABLE_DEPLOYMENT
+    task_type: E5_WF_MANAGER
+    fb_name: ENABLE_DEPLOYMENT
+    produced_by: dynamic-scaling
+    produced_at: src/main/java/e5/platform/ss/scaling/service/ScaleEngineProcessor.java:438 (sent to task-manager at :370)
+    handled_by: workflow-manager
+    site: src/main/java/com/e5/grpc/WorkflowManagerTaskHandler.java
+    line: 122
+
+  - task_name: DISABLE_DEPLOYMENT
+    task_type: E5_WF_MANAGER
+    fb_name: DISABLE_DEPLOYMENT
+    produced_by: dynamic-scaling
+    produced_at: src/main/java/e5/platform/ss/scaling/service/ScaleEngineProcessor.java:436 (sent to task-manager at :370)
+    handled_by: workflow-manager
+    site: src/main/java/com/e5/grpc/WorkflowManagerTaskHandler.java
+    line: 124
+
+  # ---- monitoring-service: switch on fbName
+  - task_name: DEPLOYMENT_HEALTH_CHECK
+    task_type: E5_MONITOR
+    fb_name: HEALTH
+    produced_by: interface
+    produced_at: src/main/java/e5/platform/ss/api/service/impl/TaskManagerHelperImpl.java:136
+    handled_by: monitoring-service
+    site: src/main/java/com/e5/service/MonitoringServiceImpl.java
+    line: 342
+
+  # ---- workflow-ops: async tasks in async_service.handle, sync tasks in polling_service.__handle
+  - task_name: DEPLOYMENT_ACTION
+    task_type: E5_WORKFLOW_OPS
+    fb_name: DEPLOYMENT_ACTION
+    produced_by: interface
+    produced_at: src/main/java/e5/platform/ss/api/service/impl/TaskManagerHelperImpl.java:130
+    handled_by: workflow-ops
+    site: src/async_service.py
+    line: 106
+
+  - task_name: WORKFLOW_RESOURCE_PROVISIONING
+    task_type: E5_WORKFLOW_OPS
+    fb_name: WORKFLOW_RESOURCE_PROVISIONING
+    produced_by: interface
+    produced_at: src/main/java/e5/platform/ss/api/service/impl/TaskManagerHelperImpl.java:164
+    handled_by: workflow-ops
+    site: src/async_service.py
+    line: 111
+
+  - task_name: UPDATE_DEPLOYMENT_SCHEDULE_STATE
+    task_type: E5_WORKFLOW_OPS
+    fb_name: UPDATE_SCHEDULE_STATE
+    produced_by: interface
+    produced_at: src/main/java/e5/platform/ss/api/service/impl/TaskManagerHelperImpl.java:140
+    handled_by: workflow-ops
+    site: src/polling_service.py
+    line: 106
+
+  - task_name: EXPORT_STATE
+    task_type: E5_WORKFLOW_OPS
+    fb_name: EXPORT_STATE
+    produced_by: interface
+    produced_at: src/main/java/e5/platform/ss/api/service/impl/TaskManagerHelperImpl.java:144
+    handled_by: workflow-ops
+    site: src/polling_service.py
+    line: 102
+
+  - task_name: IMPORT_STATE
+    task_type: E5_WORKFLOW_OPS
+    fb_name: IMPORT_STATE
+    produced_by: interface
+    produced_at: src/main/java/e5/platform/ss/api/service/impl/TaskManagerHelperImpl.java:148
+    handled_by: workflow-ops
+    site: src/polling_service.py
+    line: 104
+
+  - task_name: HOLD_OR_RESUME_WF_TRIGGER
+    task_type: E5_WORKFLOW_OPS
+    fb_name: HOLD_OR_RESUME_WF_TRIGGER
+    produced_by: interface
+    produced_at: src/main/java/e5/platform/ss/api/service/impl/TaskManagerHelperImpl.java:160
+    handled_by: workflow-ops
+    site: src/polling_service.py
+    line: 108
+
+  - task_name: RestartWorkflow
+    task_type: WorkflowOps
+    fb_name: RestartWorkflow
+    produced_by: interface
+    produced_at: src/main/java/e5/platform/ss/api/grpc/impl/InfraOpsServiceImpl.java:133
+    also_produced_by: "monitoring-service src/main/java/com/e5/service/MonitoringServiceImpl.java:402; credential-monitor src/main/java/com/e5/health/action/TaskHandler.java:66"
+    handled_by: workflow-ops
+    site: src/polling_service.py
+    line: 100
+
+  # ---- fb-worker (leaf): rf-fb-worker-core tears the worker down on this task type
+  - task_name: SCALE_DOWN
+    task_type: fb-pod-scale-down
+    fb_name: FbWorkerScaleDown
+    produced_by: workflow-manager
+    produced_at: src/main/java/com/e5/service/scaling/ScaleAppWorkerService.java:127 (also PodScaleDownService.java:263)
+    handled_by: fb-worker
+    site: e5_rf_fb_worker_core/api/keywords.py
+    line: 562

@@ -1,0 +1,143 @@
+# =============================================================================
+# SYSTEM 2 of 5 - APP DEVELOPMENT
+# Audience: app developers.
+#
+# How an APP (a set of function blocks that drive a real EHR) is built. The platform
+# owns the base image, the Python library and the UI Synthesizer tooling; the screens,
+# locators and business logic belong to the app team.
+#
+# fb-worker is the deployable, and it is composed the same way the variant is -
+# rf-fb-base-image + rf-fb-worker-core + the app's Robot Framework source - but it is
+# ONE IMAGE PER APP and is not a platform deliverable.
+#
+# This system did not exist before 2026-10-12. Its five members were split across
+# `build-input` (3), `workflow/execution` (1) and nothing at all (rf-fb-worker-core,
+# which was only a source.repo string on fb-worker).
+# =============================================================================
+
+components:
+  - name: rf-fb-base-image
+    system: app-development
+    kind: BaseImage
+    plane: none
+    audience: app-developer
+    profile: build-input
+    role: >
+      The container base every fb-worker image is FROM. Supplies the entire Citrix automation
+      runtime - Workspace App, Xvfb, icewm, VNC, xclip/xsel, wmctrl, tesseract, chromium,
+      conda - and OWNS the Citrix client configuration (All_Regions.ini, wfclient.ini) that
+      every app inherits whether or not it knows about it. One Dockerfile per Fedora base per
+      revision; branches are named `fedora-vN`, not semver.
+    source:
+      repo: rf-fb-base-image
+      remote: https://github.com/element5inc/e5-rf-fb-worker-core-docker-base-image.git
+      paths: [fedora/**]
+    composed_into: fb-worker
+
+  - name: fb-worker
+    lifecycle: production
+    system: app-development
+    kind: Deployable
+    plane: workflow
+    audience: app-developer
+    profile: workflow/execution
+    role: >
+      Runs one app's function blocks. THE IMAGE IS NOT A PLATFORM DELIVERABLE - it is
+      `e5-rf-fb-base` + `rf-fb-worker-core` + a CUSTOMER APP's Robot Framework source, one
+      image per app. The platform owns the base image, the library and the UI Synthesizer
+      tooling; the screens, locators and business logic belong to the app team and are out of
+      scope here. For what the platform requires an app to supply, read
+      knowledge/architecture/fb-worker-app-contract.md. Scaled to zero when idle, and the only
+      workflow-plane role written in Python. Holds two AKST connections - its own namespace's
+      akst via GRPC_URL and the subsystem task-manager via PLATFORM_GRPC_URL. Fetches
+      credentials from CCS round-robin.
+    generated_by: libs/deployment-config-generator/services/workflow/fb_worker.py:42
+    source:
+      repo: rf-fb-worker-core
+      remote: https://github.com/element5inc/e5-rf-fb-worker-core.git
+      paths: [e5_rf_fb_worker_core/**]
+    platform_inputs:
+      - "{'repo': 'rf-fb-base-image', 'card': 'knowledge/tooling/rf-fb-base-image.md'}"
+      - "{'repo': 'ui-synthesizer', 'card': 'knowledge/tooling/ui-synthesizer.md'}"
+    cross_plane_edge: >
+      TM_GRPC_URL = task-manager-pl-subsystem.platform-subsystem-{env}.svc.cluster.local
+      (fb_worker.py:30-31,57) - the workflow plane reaching into the subsystem plane.
+
+  - name: app-sdk
+    lifecycle: production
+    system: app-development
+    kind: Library
+    plane: none
+    audience: app-developer
+    profile: build-input
+    role: >
+      Defines the FUNCTION BLOCKS a workflow calls: a workflow's actual behaviour is assembled
+      from these. Source: element5inc/app-lib-scaffolding, whose build publishes
+      e5.functionblock:AppSDK (rootProject AppSDK; found 2026-11-14 - it was recorded as having
+      no repo before).
+    source:
+      repo: app-sdk
+    artifact: e5.functionblock:AppSDK
+    pinned_version: 1.10.3
+    pinned_by: variant-scaffolding/build.gradle
+    indexed_from: artifact
+
+  - name: rf-fb-worker-core
+    system: app-development
+    kind: Library
+    plane: none
+    audience: app-developer
+    profile: build-input
+    role: >
+      The fb-worker base library, Python. Self-described as 'Core library to abstract
+      technical parts from function block worker'. Never deployed: every app image is
+      rf-fb-base-image + this + the app's own Robot Framework source. Contains no proto - its
+      entire AKST contract arrives through the task-sdk-python package it pins.
+    source:
+      repo: rf-fb-worker-core
+      remote: https://github.com/element5inc/e5-rf-fb-worker-core.git
+    publishes: e5-rf-fb-worker-core
+    pinned_version: 1.1.12
+    indexed_from: composed
+    covered_by: [fb-worker]
+
+  - name: ui-synthesizer
+    system: app-development
+    kind: Tooling
+    plane: external
+    audience: app-developer
+    profile: build-input
+    role: >
+      Citrix automation tooling, not a build input in the strict sense - a RUNTIME service
+      plus a Python SDK. Renders text to a bitmap reproducing the remote session's ClearType
+      rasterisation, so a worker can template-match controls whose text is only known at
+      runtime. Runs on a Windows host outside k8s (GDI+ and ClearType are Windows text
+      rendering); fb-workers reach it over HTTP via HCHBUISYNTH_URL and cache results from an
+      S3 zip. Named HCHB.* for historical reasons; nothing in it is app-specific.
+    source:
+      repo: ui-synthesizer
+      remote: https://github.com/element5inc/HCHB.UiSynthesizer.git
+      paths: [E5.HCHB.UISynthesizer/**, uisynth-sdk/**, uisynth-batch/**]
+    composed_into: fb-worker
+
+  - name: non-rpa-worker-core
+    system: app-development
+    kind: Library
+    plane: none
+    audience: app-developer
+    profile: build-input
+    role: >
+      Java core for NON-RPA app workers: a task executor SDK for building custom task
+      executors (its README), with function-block input/output schema validation. Published as
+      e5.nonrpaworker:nonrpa.worker.core. Used by non-rpa-hchb-fb-worker. Added 2026-11-14 from
+      the consumer scan; what owns it and how it is deployed is not yet documented. Unindexed:
+      only customer worker images are built on it, so no platform Component covers its code.
+    source:
+      repo: non-rpa-worker-core
+      remote: https://github.com/element5inc/e5-non-rpa-worker-core-java-sdk.git
+    # Only customer non-RPA worker images are built on it, and no platform Component covers
+    # it, so its code is not run through the profile extractors. Its build file IS read
+    # (dependencies, version) from the mirror. It vendors the AKST protos (8) because it
+    # pulls tasks - a task-plane client, not a gRPC surface of its own.
+    publishes: nonrpa.worker.core
+    unindexed: true

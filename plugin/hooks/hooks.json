@@ -1,0 +1,20 @@
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command",
+        "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/session_start.py\"",
+        "timeout": 20 } ] }
+    ],
+    "PreToolUse": [
+      { "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [ { "type": "command",
+          "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/gate.py\"",
+          "timeout": 15 } ] }
+    ],
+    "PreCompact": [
+      { "hooks": [ { "type": "command",
+        "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/pre_compact.py\"",
+        "timeout": 15 } ] }
+    ]
+  }
+}

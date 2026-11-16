@@ -1,0 +1,4 @@
+# Only needed for the MCP transport. kb_core.py, kb_nav.py and every gate
+# run on the standard library alone - that is deliberate, so the indexer works in a bare
+# CI container and the knowledge base is never blocked on a dependency.
+mcp>=1.2.0        # both 1.x (FastMCP) and 2.x (MCPServer) are supported

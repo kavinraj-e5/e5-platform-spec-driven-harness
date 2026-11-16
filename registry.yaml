@@ -1,0 +1,450 @@
+# E5 Platform knowledge-base registry
+# Generated from real git state 2026-10-02. `remote` is recorded because the docs do not carry it.
+# NOTE: remote name is not always `origin` here - also `master` and `dev`.
+apiVersion: e5.kb/v1
+kind: Registry
+system: e5-platform
+
+# workspace_root: optional; default ~/.e5/workspace (tools/kbpaths.py), or $E5_KB_WORKSPACE_ROOT
+
+repos:
+  - id: interface
+    path: platform-whole-context/subsystem-workflow-interaction-support/interface
+    role: gateway
+    language: java
+    build: gradle
+    deployment: interface-ss-pl-subsystem
+    remote: https://github.com/element5inc/e5-platform-ss-interface.git
+    branch: release/v1.7.6
+    commit: d663d62
+    mirror: ~/.e5/cache/interface.git
+    deployed_in_qa: v1.6.8
+    deployment_lag: release/v1.7.6 available, v1.6.8 running
+    status: ok
+
+  - id: deployment-mgmt
+    # Re-pointed 2026-10-02: the top-level checkout is release/v1.5.0 (94 rpcs, no task_route)
+    # while QA runs v1.6.10 and this tree is release/v1.8.2 (122 rpcs, full task_route). DMS is
+    # the platform's only schema owner, so indexing a 3-minor-version-stale tree was the single
+    # worst staleness in the registry. See disagreements/task-route-absent-in-pinned-dms-commit.md
+    # CAVEAT: this path is local-dev's clone CACHE, not a durable checkout. Replace with a
+    # proper checkout of release/v1.8.2 before relying on it.
+    path: platform-whole-context/local-dev/tmp/e5-deployment-mgmt-service
+    role: store
+    language: java
+    build: gradle
+    deployment: mgmt-service-pl-subsystem
+    remote: https://github.com/element5inc/e5-deployment-mgmt-service.git
+    branch: release/v1.9.9
+    commit: f555f121
+    mirror: ~/.e5/cache/deployment-mgmt.git
+    deployed_in_qa: v1.6.10
+    deployment_lag: release/v1.9.9 available, v1.6.10 running
+    status: ok
+
+  - id: workflow-manager
+    # Re-pointed 2026-10-02: the manager-service checkout is on `main` @ 8b6c121 (Jul 2025),
+    # 30 Java files, NO gRPC server, a 1-branch dispatch. This checkout has 72 files, a
+    # WorkflowManagerGrpcServer, and a 5-branch dispatch. Behavioural claims from the old
+    # checkout were wrong; see disagreements/workflow-manager-drops-unhandled-vq-tasks.md
+    path: e5-workflow-manager-service
+    role: worker
+    language: java
+    build: gradle
+    deployment: workflow-manager-service-pl-subsystem
+    remote: https://github.com/element5inc/e5-workflow-manager-service.git
+    branch: release/v1.4.7
+    commit: 5451b4e
+    mirror: ~/.e5/cache/workflow-manager.git
+    deployed_in_qa: v1.3.2
+    deployment_lag: release/v1.4.7 available, v1.3.2 running
+    status: ok
+
+  - id: workflow-ops
+    path: platform-whole-context/subsystem-workflow-interaction-support/workflow-ops
+    role: worker
+    language: python
+    build: poetry
+    deployment: workflow-ops-pl-subsystem
+    remote: https://github.com/element5inc/e5-platform-ss-workflow-ops.git
+    branch: release/v1.7.4
+    commit: eb9acd0
+    mirror: ~/.e5/cache/workflow-ops.git
+    deployed_in_qa: v1.6.3
+    deployment_lag: release/v1.7.4 available, v1.6.3 running
+    status: ok
+
+  - id: monitoring-service
+    path: e5-monitoring-service
+    role: worker
+    language: java
+    build: gradle
+    deployment: monitoring-service-pl-subsystem
+    remote: https://github.com/element5inc/e5-monitoring-service.git
+    branch: release/v1.5.9
+    commit: ac057d4
+    mirror: ~/.e5/cache/monitoring-service.git
+    deployed_in_qa: v1.5.6
+    deployment_lag: release/v1.5.9 available, v1.5.6 running
+    status: ok
+
+  - id: event-store
+    path: platform-whole-context/subsystem-workflow-interaction-support/event-strore
+    role: store
+    language: java
+    build: gradle
+    deployment: event-store-pl-subsystem
+    remote: https://github.com/element5inc/e5-platform-ss-event-store.git
+    branch: release/v1.1.4
+    commit: cac7bb6
+    mirror: ~/.e5/cache/event-store.git
+    deployed_in_qa: v1.1.3
+    deployment_lag: release/v1.1.4 available, v1.1.3 running
+    status: ok
+
+  - id: event-processor
+    path: platform-whole-context/subsystem-workflow-interaction-support/e5-platform-ss-event-processor
+    role: consumer
+    language: java
+    build: gradle
+    deployment: event-processor-pl-subsystem
+    remote: https://github.com/element5inc/e5-platform-ss-event-processor.git
+    branch: release/v1.2.1
+    commit: eb630c2
+    mirror: ~/.e5/cache/event-processor.git
+    deployed_in_qa: v1.2.0
+    deployment_lag: release/v1.2.1 available, v1.2.0 running
+    status: ok
+
+  - id: webhook-service
+    path: platform-whole-context/subsystem-workflow-interaction-support/webhook-service
+    role: dispatcher
+    language: java
+    build: maven
+    deployment: webhook-service-pl-subsystem
+    remote: https://github.com/element5inc/e5-platform-ss-webhook-service.git
+    branch: release/v1.4.0
+    commit: 4bb7a37
+    mirror: ~/.e5/cache/webhook-service.git
+    deployed_in_qa: v1.3.3
+    deployment_lag: release/v1.4.0 available, v1.3.3 running
+    status: ok
+
+  - id: audit-service
+    path: platform-whole-context/subsystem-workflow-interaction-support/e5-platform-ss-audit-service
+    role: store
+    language: java
+    build: maven
+    deployment: audit-service-pl-subsystem
+    remote: https://github.com/element5inc/e5-platform-ss-audit-service.git
+    branch: release/v1.1.1
+    commit: b73dcec
+    mirror: ~/.e5/cache/audit-service.git
+    deployed_in_qa: v1.1.0
+    deployment_lag: release/v1.1.1 available, v1.1.0 running
+    status: ok
+
+  - id: workflow-api
+    path: platform-whole-context/subsystem-workflow-interaction-support/e5-platform-ss-workflow-api
+    role: gateway
+    language: java
+    build: maven
+    deployment: workflow-api-pl-subsystem
+    remote: https://github.com/element5inc/e5-platform-ss-workflow-api.git
+    branch: release/v1.5.0
+    commit: bb91723
+    mirror: ~/.e5/cache/workflow-api.git
+    deployed_in_qa: v1.4.2
+    deployment_lag: release/v1.5.0 available, v1.4.2 running
+    status: ok
+
+  - id: dynamic-scaling
+    path: platform-whole-context/subsystem-workflow-interaction-support/e5-ss-dynamic-scaling-service
+    role: consumer
+    language: java
+    build: gradle
+    deployment: dynamic-scaling-service-ss-pl-subsystem
+    remote: https://github.com/element5inc/e5-ss-dynamic-scaling-service.git
+    branch: release/v1.3.2
+    commit: 6f9a27d
+    mirror: ~/.e5/cache/dynamic-scaling.git
+    deployed_in_qa: v1.1.2
+    deployment_lag: release/v1.3.2 available, v1.1.2 running
+    status: ok
+
+  - id: credential-monitor
+    path: platform-whole-context/subsystem-workflow-interaction-support/e5-platform-ss-credential-monitor
+    role: worker
+    language: java
+    build: gradle
+    deployment: e5-platform-ss-credential-monitor-pl-subsystem
+    remote: https://github.com/element5inc/e5-platform-ss-credential-monitor.git
+    branch: release/v1.1.1
+    commit: 2c003da
+    mirror: ~/.e5/cache/credential-monitor.git
+    deployed_in_qa: v1.1.0
+    deployment_lag: release/v1.1.1 available, v1.1.0 running
+    status: ok
+
+  - id: task-reader
+    path: platform-whole-context/subsystem-workflow-interaction-support/e5-task-reader
+    role: reader
+    language: java
+    build: gradle
+    remote: https://github.com/element5inc/e5-task-reader.git
+    branch: release/v1.0.5
+    commit: 83a1aad
+    mirror: ~/.e5/cache/task-reader.git
+    status: ok
+
+  - id: platform-core
+    path: platform-whole-context/platform-workflow-building/platform-core
+    role: library   # the variant image: 6 WORKER_MODE roles, see catalog/10-workflow-plane.yaml
+    language: java
+    build: gradle
+    remote: https://github.com/element5inc/e5-platform-core.git
+    branch: release/v1.10.1
+    commit: 377cd53d
+    mirror: ~/.e5/cache/platform-core.git
+    status: ok
+
+  - id: rf-fb-worker-core
+    path: platform-whole-context/platform-workflow-app-building/e5-rf-fb-worker-core
+    role: library
+    language: python
+    build: poetry
+    remote: https://github.com/element5inc/e5-rf-fb-worker-core.git
+    branch: release/v1.1.14
+    commit: 582647f
+    mirror: ~/.e5/cache/rf-fb-worker-core.git
+    status: ok
+
+  - id: ui-synthesizer
+    # Platform-provided Citrix automation tooling. The repo and namespaces are named HCHB
+    # for historical reasons; nothing in it is HCHB-specific - it renders arbitrary text
+    # to a bitmap. See knowledge/tooling/ui-synthesizer.md
+    # No release/vX.Y.Z branch: the convention here is `release-X.Y.Z` with a hyphen.
+    path: platform-whole-context/platform-workflow-app-building/HCHB.UiSynthesizer
+    role: library
+    language: csharp
+    build: msbuild
+    remote: https://github.com/element5inc/HCHB.UiSynthesizer.git
+    branch: release-2.0.0
+    commit: da8b600
+    mirror: ~/.e5/cache/ui-synthesizer.git
+    status: no-release-branch
+
+  - id: rf-fb-base-image
+    # The container base every fb-worker image is FROM. Platform-provided: Citrix Workspace
+    # App, Xvfb, icewm, VNC, xclip, tesseract, wmctrl, conda+poetry. Apps add only their own
+    # source on top. See knowledge/tooling/rf-fb-base-image.md
+    # NO LOCAL CHECKOUT in this workspace - indexed from the mirror only.
+    # No release/vX.Y.Z branch: branches here are named `fedora-vN`.
+    path: platform-whole-context/platform-workflow-app-building/e5-rf-fb-worker-core-docker-base-image
+    role: image
+    language: dockerfile
+    build: docker
+    remote: https://github.com/element5inc/e5-rf-fb-worker-core-docker-base-image.git
+    branch: fedora-v8
+    commit: f3d32d3
+    mirror: ~/.e5/cache/rf-fb-base-image.git
+    status: no-release-branch
+
+  - id: workflow-config
+    path: platform-whole-context/workflow-config-deployment-configuration/e5-platform-workflow-config
+    role: config
+    language: yaml
+    remote: https://github.com/element5inc/e5-platform-workflow-config.git
+    branch: release/v1.0.9.4
+    commit: 9328635345
+    mirror: ~/.e5/cache/workflow-config.git
+    status: ok
+
+  - id: devops-pipeline
+    path: platform-whole-context/e5-platform-devops-pipeline
+    role: pipeline
+    language: python
+    remote: https://github.com/element5inc/e5-platform-devops-pipeline.git
+    branch: release/v4.1.0
+    commit: 41c4798
+    mirror: ~/.e5/cache/devops-pipeline.git
+    status: ok
+
+  - id: akst-service
+    # Deployed as the subsystem `task-manager`. Confirmed from the cluster:
+    # e5-platform-ss-task-manager:v1.2.2-RELEASE-AKST-04-02-2026-001. The old
+    # `task-manager` repo entry pointed at platform-core and was simply wrong.
+    path: e5-akst-service
+    deployment: task-manager-pl-subsystem
+    role: queue     # the DEPLOYED subsystem task-manager (e5-platform-ss-task-manager), not a fork
+    language: java
+    build: gradle
+    remote: https://github.com/element5inc/e5-akst-service.git
+    branch: release/v1.3.5
+    commit: fddcffc
+    mirror: ~/.e5/cache/akst-service.git
+    deployed_in_qa: v1.2.2
+    deployment_lag: release/v1.3.5 available, v1.2.2 running
+    status: ok
+
+  - id: eventstore-client-sdk
+    path: e5-eventstore-client-sdk
+    role: library
+    language: java
+    build: gradle
+  # Added 2026-11-14 by the consumer scan (tools/consumers.py): source repos for libraries the
+  # catalog had as artifact-only. Each was confirmed by its own build file:
+  #   e5-task-sdk-java     group e5.task.sdk.java, rootProject e5-task-sdk-java
+  #   app-lib-scaffolding  group e5.functionblock, rootProject AppSDK
+  #   e5-non-rpa-worker-core-java-sdk  group e5.nonrpaworker, rootProject nonrpa.worker.core
+    remote: https://github.com/element5inc/e5-eventstore-client-sdk.git
+    branch: event-store-client-sdk
+    commit: 855db19
+    mirror: ~/.e5/cache/eventstore-client-sdk.git
+    status: no-release-branch
+
+  - id: task-sdk-java
+    path: e5-task-sdk-java
+    role: library
+    language: java
+    build: gradle
+    remote: https://github.com/element5inc/e5-task-sdk-java.git
+    branch: release/v0.7.7
+    commit: c6f419f
+    mirror: ~/.e5/cache/task-sdk-java.git
+    status: ok
+
+  - id: app-sdk
+    path: app-lib-scaffolding
+    role: library
+    language: java
+    build: gradle
+    remote: https://github.com/element5inc/app-lib-scaffolding.git
+    branch: release/v1.10.5
+    commit: 7ac3ed2
+    mirror: ~/.e5/cache/app-sdk.git
+    status: ok
+
+  - id: non-rpa-worker-core
+    path: e5-non-rpa-worker-core-java-sdk
+    role: library
+    language: java
+    build: gradle
+  # Added 2026-11-14: StateService and the Python task SDK have source repos too.
+  #   e5-state-service    group e5.state, rootProject StateService (release/v1.3.0)
+  #   e5-task-sdk-python  pyproject e5-task-sdk-python; NO release branch (master)
+    remote: https://github.com/element5inc/e5-non-rpa-worker-core-java-sdk.git
+    branch: release/v0.3.3
+    commit: 2ffab14
+    mirror: ~/.e5/cache/non-rpa-worker-core.git
+    status: ok
+
+  - id: state-service
+    path: e5-state-service
+    role: library
+    language: java
+    build: gradle
+    remote: https://github.com/element5inc/e5-state-service.git
+    branch: release/v1.3.0
+    commit: b0aeb4d
+    mirror: ~/.e5/cache/state-service.git
+    status: ok
+
+  - id: task-sdk-python
+    path: e5-task-sdk-python
+    role: library
+    language: python
+    build: poetry
+    remote: https://github.com/element5inc/e5-task-sdk-python.git
+    branch: master
+    commit: e8dc5f2
+    mirror: ~/.e5/cache/task-sdk-python.git
+    status: no-release-branch
+
+  - id: wf-scaffolding
+    path: platform-whole-context/platform-workflow-building/scaffolding
+    role: scaffold
+    language: java
+    build: gradle
+    remote: https://github.com/element5inc/wf-scaffolding.git
+    branch: release/v1.11.5
+    commit: ae2bf8e
+    mirror: ~/.e5/cache/wf-scaffolding.git
+    status: ok
+
+  - id: variant-scaffolding
+    path: platform-whole-context/platform-workflow-building/variant
+    role: scaffold
+    language: java
+    build: gradle
+    remote: https://github.com/element5inc/wf-variant-scaffolding.git
+    branch: release/v1.33.8
+    commit: 089f2ff
+    mirror: ~/.e5/cache/variant-scaffolding.git
+    status: ok
+
+  - id: credential-distribution-service
+    # CDS - the Credential Distribution Service. New subsystem, onboarded 2026-11-13 from
+    # the bare mirror; there is no working copy and the indexer must not want one.
+    # Its relationship to the catalog's `ccs` (credential custody, NO repository) is
+    # UNCONFIRMED - it may be the same capability with a repo at last, or a sibling.
+    role: subsystem
+    language: java
+    build: gradle
+    deployment: credential-distribution-service-ss
+    remote: https://github.com/element5inc/e5-ss-credential-distribution-service.git
+    branch: release/v1.0.2
+    commit: 14b6f6f
+    mirror: ~/.e5/cache/credential-distribution-service.git
+    deployed_in_qa: not-observed
+    status: ok
+
+# Binary dependencies that hold load-bearing logic but have NO source checkout.
+# These are a distinct provenance class: facts from them come from a disassembled jar,
+# cannot be re-derived by the source indexer, and go stale invisibly on a version bump.
+# AKST's entire dequeue ordering - the platform's hottest query - lives only here.
+binary_dependencies:
+  - id: state-service
+    coordinate: e5.state:StateService:1.2.8
+    pinned_at: platform-core/build.gradle:238
+    holds: >
+      TaskProcessor.buildQuery - the AKST dequeue ORDER BY, the filters-affinity
+      predicate, and the FOR UPDATE SKIP LOCKED clause. No source repo exists in the
+      workspace; facts were recovered by disassembly.
+    provenance: disassembled-jar
+    source_repo: UNKNOWN - no checkout in this workspace
+  - id: task-sdk-java
+    coordinate: e5-task-sdk-java:0.7.3
+    pinned_at: multiple
+    holds: >
+      TaskTransport/TaskInfo/MetaInfo JSON schemas and the Command, EndpointType,
+      WorkerType, ResponseEventType enums. GROUND TRUTH for the wire protocol -
+      ranked above all source and all documentation.
+    provenance: sdk-schema
+    source_repo: UNKNOWN - no checkout in this workspace
+
+# Confluence ingestion is an explicit ALLOWLIST, never a space crawl.
+# EKB has 1085 pages of which ~60% is customer RPA content, not platform engineering.
+# Discovery must be CQL-based: 54 folders hold all 2026 work and are invisible to the pages API.
+confluence:
+  cloud_id: 41d2a7a1-718f-4dce-92b2-0072860a509d
+  site: element5.atlassian.net
+  spaces_full:        [pltfrm, 2E]     # small, high signal - ingest fully
+  spaces_allowlisted: [EKB]            # curated page list only
+  spaces_cherry_pick: [A2, TG]         # bulk is customer delivery
+  spaces_excluded:    [TS, PE, EAC, FT, MAR, O, SER, PLAYBOOK]
+
+# Provenance precedence. Higher wins when sources conflict.
+provenance_rank:
+  - sdk-schema         # e5-task-sdk-java jar schemas + enums: ground truth for the wire
+  - code               # service source at the recorded commit
+  - disassembled-jar   # logic recovered from a binary with no source checkout.
+                       # Ranked below source NOT because it is less true - it is the
+                       # running code - but because it cannot be re-verified by the
+                       # indexer and goes stale invisibly. Always cite the coordinate.
+  - live-cluster     # read-only kubectl: what is actually running
+  - config           # deployment-configs, build-config.yaml
+  - confluence-design
+  - confluence-pip
+  - readme
+  - inferred

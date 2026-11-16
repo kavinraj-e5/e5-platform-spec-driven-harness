@@ -1,0 +1,49 @@
+# EXTRACTION ONLY. Retrieval (kb_core.py, query.py, mcp_server.py) runs on the standard
+# library alone, and `extract/test_extract.py::test_the_retrieval_path_takes_no_dependency`
+# is what keeps that true - so the plugin works on a laptop with nothing installed while
+# the indexer, which runs in CI and in Docker, is free to use real parsers.
+#
+# Why each one, measured: see extract/PORTING.md.
+tree-sitter>=0.23        # Java: structure instead of regex. 1,733 main + 479 test files.
+tree-sitter-java>=0.23   #   the grammar
+tree-sitter-python>=0.23 #   kept for files `ast` cannot parse; `ast` is preferred
+PyYAML>=6.0              # YAML and JSON, through the composer - `safe_load` returns
+                         #   plain dicts and a fact without a line cannot be checked.
+grpcio-tools>=1.60       # proto, via descriptor sets. The only front end here that
+                         #   follows `import`, which is what makes a request type
+                         #   joinable across repos: `Empty` is not, `google.protobuf.
+                         #   Empty` is, and this estate declares both.
+graphql-core>=3.2        # GraphQL SDL, the reference parser.
+sqlglot>=25              # SQL DDL - but ONLY for the 80% it can read. Measured on this
+                         #   estate: 46 statements fall back to an opaque `Command`,
+                         #   11 of them CREATE TABLEs carrying pgAdmin's
+                         #   `COLLATE pg_catalog."default"` / `TABLESPACE pg_default`.
+                         #   `extract/declared/migrations.py` keeps a regex fallback
+                         #   and COUNTS it in a `SqlParseGap` fact, so the day sqlglot
+                         #   widens its PostgreSQL support the number moves and the
+                         #   fallback can go.
+pyright>=1.1.380        # the Python call graph (tools/call_graph.py), over LSP. The pip
+                         #   package fetches the pyright release (and Node, if absent) on
+                         #   first use and installs `pyright-langserver` into this venv.
+                         #   Measured 2026-11-14: Python callees cannot be resolved without
+                         #   type inference; the `ast` has to guess them by name.
+networkx>=3.0            # SHAPE questions about the component graph: strongly
+                         #   connected components, articulation points, shortest
+                         #   paths. `graph_model` already walks edges by hand and
+                         #   correctly; these are the standard algorithms with the
+                         #   well-known edge cases, and re-deriving Tarjan's low-link
+                         #   is where the bug would be. tools/graph_analysis.py only -
+                         #   NOT the retrieval path, which the transitive import test
+                         #   in extract/test_extract.py enforces.
+
+# NOT INSTALLED BY pip, DELIBERATELY:
+#
+#   pipx install semgrep
+#
+# `tools/patterns.py` re-checks the disagreement cards against the code and invokes
+# semgrep as a BINARY, never as a module. Measured 2026-10-17: `pip install --user
+# semgrep` upgrades starlette past what the pinned fastapi supports, and
+# console/test_app.py then fails at collection with
+# `TypeError: Router.__init__() got an unexpected keyword argument`. A CLI has no
+# business sharing a site-packages with an application. `./e5 patterns` reports a loud
+# SKIP when the binary is absent, so CI without it is not a false pass.

@@ -1,0 +1,47 @@
+# gRPC contract defects. Two cards, both high severity, both about a server that
+# reports success-shaped failure to a caller that cannot tell.
+rules:
+  - id: grpc-catch-completes-without-onerror
+    languages: [java]
+    severity: ERROR
+    message: >-
+      This method catches an exception and still reaches onCompleted() without ever
+      calling onError(). A gRPC unary caller receives a completed call with zero
+      messages and no status, which an async stub will read as success.
+    metadata:
+      e5-card: knowledge/known-issues/event-store-grpc-swallows-errors.md
+      e5-expect: present
+      e5-at:
+        - event-store src/main/java/e5/platform/ss/event/store/service/impl/PlatformEventStoreImpl.java:47
+    patterns:
+      # The method must actually be a gRPC handler - a StreamObserver parameter is the
+      # signature of one. Without this the rule fires on every try/catch in the estate.
+      - pattern-inside: |
+          $R $M(..., io.grpc.stub.StreamObserver<$T> $OBS, ...) { ... }
+      - pattern: |
+          try { ... } catch ($E $X) { ... }
+      - pattern-not: |
+          try { ... } catch ($E $X) { ... $OBS.onError(...); ... }
+      - pattern-not: |
+          try { ... } catch ($E $X) { ... throw $Y; ... }
+
+  - id: grpc-onnext-takes-a-nullable-result
+    languages: [java]
+    severity: ERROR
+    message: >-
+      onNext() is handed the result of a helper that can return null. StreamObserver
+      does not permit a null message; the stub dereferences it while marshalling and
+      the call ends in an internal error instead of an empty response.
+    metadata:
+      e5-card: knowledge/known-issues/gettask-passes-null-to-onnext.md
+      e5-expect: present
+      e5-at:
+        - platform-core src/main/java/com/e5/platform/core/akst/service/TaskServiceGrpcImpl.java:219
+    patterns:
+      - pattern-inside: |
+          class $C {
+            ...
+            $T $HELPER(...) { ... if ($A == null) { return null; } ... }
+            ...
+          }
+      - pattern: $OBS.onNext($HELPER(...));

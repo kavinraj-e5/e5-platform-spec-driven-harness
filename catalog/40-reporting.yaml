@@ -1,0 +1,128 @@
+# =============================================================================
+# SYSTEM 4 of 5 - REPORTING
+# Audience: the hub / reporting team.
+#
+# What happened, recorded and sent onward. Two chains that are easy to confuse and are
+# NOT the same path:
+#   event-store -> event-processor -> subscribers        (platform events)
+#   (separate producer) -> webhook-service -> customer   (customer webhooks)
+# event-processor does NOT feed webhook-service.
+#
+# audit-service is the compliance log and is HIPAA-relevant.
+#
+# This system did not exist before 2026-10-12. Its members were split across
+# `subsystem/control` (2), `subsystem/event-driven` (2) and `build-input` (1), so no
+# query could return "the reporting chain" as a unit.
+# =============================================================================
+
+components:
+  - name: audit-service
+    lifecycle: production
+    system: reporting
+    kind: Deployable
+    plane: subsystem
+    audience: hub-reporting
+    profile: subsystem/event-driven
+    role: >
+      The compliance log. Consumes audit events off Kafka into its own schema. HIPAA-
+      relevant, which raises the cost of a silent gap here above the usual.
+    pod: audit-service
+    image: e5-platform-ss-audit-service
+    source:
+      repo: audit-service
+      remote: https://github.com/element5inc/e5-platform-ss-audit-service.git
+      paths: [src/main/java/**, src/main/resources/db/**]
+
+  - name: event-processor
+    lifecycle: production
+    system: reporting
+    kind: Deployable
+    plane: subsystem
+    audience: hub-reporting
+    profile: subsystem/control
+    role: >
+      Fans a platform event out to its subscribers. Second hop of the event pipeline. Does NOT
+      feed webhook-service - that is a separate chain with different secret handling.
+    pod: event-processor
+    image: e5-platform-ss-event-processor
+    source:
+      repo: event-processor
+      remote: https://github.com/element5inc/e5-platform-ss-event-processor.git
+      paths: [src/main/java/**]
+
+  - name: event-store
+    lifecycle: production
+    system: reporting
+    kind: Deployable
+    plane: subsystem
+    audience: hub-reporting
+    profile: subsystem/control
+    role: >
+      Ingests every platform event. First hop of the event pipeline; serves sendEvent over
+      gRPC. In `control` rather than `event-driven` because it ships a proto and serves RPCs -
+      the pipeline is a relation, not a deployment style.
+    pod: event-store
+    image: e5-platform-ss-event-store
+    serves: [EventStoreService]
+    source:
+      repo: event-store
+      remote: https://github.com/element5inc/e5-platform-ss-event-store.git
+      paths: [src/main/java/**]
+
+  - name: webhook-service
+    lifecycle: production
+    system: reporting
+    kind: Deployable
+    plane: subsystem
+    audience: hub-reporting
+    profile: subsystem/event-driven
+    role: >
+      Delivers webhooks to customer endpoints with retry and circuit breaking. Kafka-driven
+      with its own tables; no gRPC surface. One of TWO distinct webhook chains - this is not
+      the one platform events traverse.
+    pod: webhook-service
+    image: e5-platform-ss-webhook-service
+    source:
+      repo: webhook-service
+      remote: https://github.com/element5inc/e5-platform-ss-webhook-service.git
+      paths: [src/main/java/**, src/main/resources/db/**]
+
+  - name: eventstore-client-sdk
+    system: reporting
+    kind: Library
+    plane: none
+    audience: hub-reporting
+    profile: build-input
+    role: >
+      Client library for the event store, consumed by services that publish events rather than
+      a deployable in its own right.
+    source:
+      repo: eventstore-client-sdk
+      remote: https://github.com/element5inc/e5-eventstore-client-sdk.git
+      paths: [src/**]
+
+
+  # Added 2026-10-12 by the citation gate. Three cards cite files in this repo -
+  # LambdaHandler.java, WebhookEventDispatcherServiceImpl.java, ConfigLoader.java - and
+  # the catalog did not know it existed, so those citations resolved to nothing and read
+  # as broken. They are not broken; the repository is simply not indexed here.
+  #
+  # It is the DELIVERY END of webhook Chain A (event-store -> event-processor -> this
+  # Lambda -> customer endpoint). Leaving it out of the catalog meant the only chain that
+  # actually carries platform events terminated, in the model, at event-processor.
+  # See disagreements/event-processor-does-not-feed-webhook-service.md
+  - name: webhook-dispatcher
+    system: reporting
+    kind: Deployable
+    plane: subsystem
+    audience: hub-reporting
+    profile: excluded
+    role: >
+      AWS Lambda, MSK event source. The dispatcher for webhook Chain A: reads the record
+      event-processor produced, takes webhookUrl and the shared secret off the payload, POSTs
+      it, and produces a status record back. NOT webhook-service, which is Chain B and shares
+      no payload, no secret store and no code with it. NO REPOSITORY SUPPLIED - nothing here
+      is indexed, so any answer about retry, timeout or auth behaviour must say so.
+    source:
+      repo: UNKNOWN
+    unindexed: true

@@ -1,0 +1,225 @@
+# =============================================================================
+# SYSTEM 3 of 5 - WORKFLOW INTERACTIONS (the subsystems)
+# Audience: support, and Neos operators via the interface.
+#
+# The control plane: manage, drive and observe running workflows and apps. One shared
+# Kubernetes namespace per environment (platform-subsystem-{env}).
+#
+# Every member is a Deployable - one repo, one image, one role. This is the ONLY system
+# where the old runtime-topology model was already correct, which is why its members are
+# unchanged apart from losing the `domain` wrapper.
+# =============================================================================
+
+components:
+  - name: ccs
+    system: workflow-interactions
+    kind: Deployable
+    plane: subsystem
+    audience: support
+    profile: excluded
+    role: >
+      Credential custody. fb-worker pods call this API for credentials, handed out
+      round-robin. NO REPOSITORY SUPPLIED - nothing is indexed, and every credential answer
+      should say so rather than imply coverage. Its pools are visible indirectly: deployment-mgmt
+      records `ccs_pool_name` per shared credential group, and `cds` reads their availability
+      through the Resource Navigator (RN) to ration pods - see the cds Component.
+    source:
+      repo: UNKNOWN
+    unindexed: true
+
+  - name: credential-monitor
+    lifecycle: production
+    system: workflow-interactions
+    kind: Deployable
+    plane: subsystem
+    audience: support
+    profile: subsystem/control
+    role: >
+      Watches credential health and release. Shares its client scaffolding with
+      monitoring-service - ServiceType, ProtoFactory and MonitoringClientImpl are near-copies,
+      which is a maintenance hazard worth knowing before editing either.
+    pod: credential-monitor
+    image: e5-platform-ss-credential-monitor
+    source:
+      repo: credential-monitor
+      remote: https://github.com/element5inc/e5-platform-ss-credential-monitor.git
+      paths: [src/main/java/**]
+
+  - name: cds
+    system: workflow-interactions
+    kind: Deployable
+    plane: subsystem
+    audience: support
+    profile: subsystem/control
+    role: >
+      Credential Distribution Service. Sizes fb-worker pods to a SHARED credential pool:
+      one credential backs one pod, so it decides `max_replicas` per application of each
+      shared credential group and writes it to deployment-mgmt (UpdateFbWorkerPodDetails),
+      recording one plan row per group (SavePlanExecution). A planner, not a task handler -
+      it never polls AKST. It OBSERVES the akst_workload report task-reader republishes
+      every minute (the same topic dynamic-scaling's estimator reads, under a different
+      consumer group), credential events from the Resource Navigator (RN), and group
+      membership from deployment-mgmt every 60s. No database: all state is in memory and
+      per pod, which is why it must run ONE replica. Not the same thing as `ccs`: CDS reads
+      CCS pools (`ccs_pool_name`) through RN rather than holding credentials itself.
+    pod: credential-distribution-service-ss
+    image: e5-ss-credential-distribution-service
+    source:
+      repo: credential-distribution-service
+      remote: https://github.com/element5inc/e5-ss-credential-distribution-service.git
+      paths: [src/main/java/**]
+
+  - name: deployment-mgmt
+    lifecycle: production
+    system: workflow-interactions
+    kind: Deployable
+    plane: subsystem
+    audience: support
+    profile: subsystem/data
+    role: >
+      The platform's ONLY schema owner, and a pure sink: it serves ~120 gRPC methods, owns
+      every table, and makes no outbound call to any service. Any state a subsystem needs
+      persisted lives here, which makes it the highest-fanout Component in the estate - a
+      column change ripples to every gRPC consumer.
+    pod: mgmt-service
+    image: e5-platform-ss-deployment-mgmt-service
+    deployment: mgmt-service-pl-subsystem
+    serves: [DeploymentManagementService]
+    source:
+      repo: deployment-mgmt
+      remote: https://github.com/element5inc/e5-deployment-mgmt-service.git
+      paths: [src/main/java/**, src/main/resources/db/**]
+    owns_schema: true
+    outbound_edges: 0
+
+  - name: dynamic-scaling
+    lifecycle: production
+    system: workflow-interactions
+    kind: Deployable
+    plane: subsystem
+    audience: support
+    profile: subsystem/control
+    role: >
+      Autoscales fb-worker pods from the tasks available, within the max_replicas ceiling CDS
+      writes to deployment-mgmt. It records the scaling request in deployment-mgmt
+      (createDssTask, DssGrpcClient.java:138) and sends an E5_WF_MANAGER task to task-manager
+      itself (ScaleEngineProcessor.java:370): fbName DISABLE_DEPLOYMENT to scale down,
+      ENABLE_DEPLOYMENT to scale up, with the replica count. workflow-manager handles it and
+      has workflow-ops perform the pod change. DSS never performs the scale itself.
+    pod: dynamic-scaling-service-ss
+    image: e5-ss-dynamic-scaling-service
+    source:
+      repo: dynamic-scaling
+      remote: https://github.com/element5inc/e5-ss-dynamic-scaling-service.git
+      paths: [src/main/java/**]
+
+  - name: interface
+    lifecycle: production
+    system: workflow-interactions
+    kind: Deployable
+    plane: subsystem
+    audience: support
+    profile: subsystem/gateway
+    role: >
+      THE front door to the subsystems. Neos calls this and nothing else; no external caller
+      reaches a subsystem directly. Serves GraphQL, calls subsystems over gRPC, and builds
+      tasks - it holds BOTH task-routing switches, which is why a routing change always
+      touches this Component.
+    pod: interface-ss
+    image: e5-platform-ss-interface
+    deployment: interface-ss-pl-subsystem
+    serves: [GraphQL]
+    source:
+      repo: interface
+      remote: https://github.com/element5inc/e5-platform-ss-interface.git
+      paths: [src/main/java/**, src/main/resources/**]
+    routing_switches:
+      - src/main/java/e5/platform/ss/api/service/impl/TaskManagerHelperImpl.java:125-163  taskName -> taskType + fbName
+      - src/main/java/e5/platform/ss/api/taskmanager/protocol/TaskManagerProtocolBuilder.java:83-88  taskName -> vqName (from config)
+
+  - name: monitoring-service
+    lifecycle: production
+    system: workflow-interactions
+    kind: Deployable
+    plane: subsystem
+    audience: support
+    profile: subsystem/control
+    role: >
+      Owns HEALTH. Polls deployment health and triggers self-heal. Its verdict gates whether a
+      deployment is reported healthy, so a fail-open bug here hides outages.
+    pod: monitoring-service
+    image: e5-platform-ss-monitoring-service
+    deployment: monitoring-service-pl-subsystem
+    serves: [MonitoringService]
+    source:
+      repo: monitoring-service
+      remote: https://github.com/element5inc/e5-monitoring-service.git
+      paths: [src/main/java/**]
+    owns_task_type: E5_MONITOR
+
+  - name: workflow-api
+    lifecycle: production
+    system: workflow-interactions
+    kind: Deployable
+    plane: subsystem
+    audience: support
+    profile: subsystem/edge
+    role: >
+      The business-facing trigger API, and ONLY for starting workflows. A non-technical caller
+      supplies business details; this Component owns the transformation into the platform
+      input format and the triggering. It reaches the platform as a CLIENT of interface's
+      GraphQL - `mutation StartWorkflow(...)` against PLATFORM_GRAPHQL_URL - not as a gRPC
+      peer. It ships zero protos.
+    pod: workflow-api
+    image: e5-platform-ss-workflow-api
+    source:
+      repo: workflow-api
+      remote: https://github.com/element5inc/e5-platform-ss-workflow-api.git
+      paths: [src/main/java/**, src/main/resources/db/**]
+    calls_graphql: src/main/java/com/company/workflow/integration/platform/PlatformGraphQLClient.java:38
+
+  - name: workflow-manager
+    lifecycle: production
+    system: workflow-interactions
+    kind: Deployable
+    plane: subsystem
+    audience: support
+    profile: subsystem/control
+    role: >
+      Owns WORKFLOW AND APP MANAGEMENT. Everything about a running workflow or app lands here
+      - trigger, pause/resume, terminate, scale an app worker up or down, release a
+      credential, enable/disable a deployment. May call N other subsystems to fulfil one
+      request, and emits fresh tasks of its own.
+    pod: workflow-manager-service
+    image: e5-platform-ss-workflow-manager-service
+    deployment: workflow-manager-service-pl-subsystem
+    serves: [WorkflowManagerService]
+    source:
+      repo: workflow-manager
+      remote: https://github.com/element5inc/e5-workflow-manager-service.git
+      paths: [src/main/java/**]
+    owns_task_type: E5_WF_MANAGER
+    outbound_enum: src/main/java/com/e5/grpc/stubs/ServiceType.java
+
+  - name: workflow-ops
+    lifecycle: production
+    system: workflow-interactions
+    kind: Deployable
+    plane: subsystem
+    audience: support
+    profile: subsystem/control
+    role: >
+      Owns INFRASTRUCTURE. The devops/infra actuator - deployment, Kubernetes control, pod
+      lifecycle, Jenkins and AWS. The only subsystem holding cloud credentials. Distinct from
+      workflow-manager despite the similar name; the collision is documented nowhere in either
+      repo.
+    pod: workflow-ops
+    image: e5-platform-ss-workflow-ops
+    deployment: workflow-ops-pl-subsystem
+    serves: [WorkflowOps]
+    source:
+      repo: workflow-ops
+      remote: https://github.com/element5inc/e5-platform-ss-workflow-ops.git
+      paths: [src/**]
+    owns_task_type: E5_WORKFLOW_OPS
+

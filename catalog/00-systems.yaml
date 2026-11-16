@@ -1,0 +1,81 @@
+# =============================================================================
+# L1 - THE FIVE PLATFORM SYSTEMS, plus two support systems.
+# Authored, never generated. This file is the map; the numbered files are the territory.
+#
+# A System answers "WHOSE PROBLEM IS THIS, AND WHAT IS IT FOR" - which is the first
+# question a story must resolve and the one no amount of code parsing will answer.
+#
+# WHY THIS REPLACED THE DOMAIN MODEL (2026-10-12)
+# -----------------------------------------------
+# The previous model had one axis - runtime deployment topology - doing the work of
+# three. Everything that is not deployed had to be filed somewhere anyway, so it was
+# filed under `domain: subsystems`: platform-core, task-sdk, app-sdk and wf-scaffolding
+# all landed in a domain whose defining property is a Kubernetes namespace pattern.
+# 11 of the 23 things in `subsystems` were not subsystems. App development had no home
+# at all, and its five pieces were spread across two domains and one hole.
+#
+# The replacement is two levels, not three, and the classifying axis is capability and
+# audience rather than topology. Deployment facts did not disappear - they moved to
+# where they belong, as `kind` and `plane` ON THE COMPONENT, so a thing that is never
+# deployed simply has `plane: none` instead of being assigned a namespace it will
+# never occupy.
+#
+# THE FOUR COMPONENT KINDS
+# ------------------------
+#   Library     published, consumed at BUILD time, never deployed. No pod, no image.
+#   Deployable  an image with a chart and a runtime placement.
+#   Role        a runtime identity selected OUT OF a Deployable by an env var. The five
+#               workflow roles are not five deployables; they are one image and five
+#               values of WORKER_MODE.
+#   BaseImage / Config / Tooling / External - the remainder, named so each is a decision.
+#
+# This is why `akst` and `task-manager` can finally be stated as one capability with two
+# packagings (`realises: akst-priority-queue`) rather than two unrelated entries in two
+# different domains.
+# =============================================================================
+
+systems:
+  - name: workflow-development
+    audience: workflow-developer
+    summary: >
+      How an automation workflow is built and shipped. Libraries and scaffolding, plus
+      the one variant image that runs five roles selected by WORKER_MODE.
+
+  - name: app-development
+    audience: app-developer
+    summary: >
+      How an app - the function blocks that drive a real EHR - is built. The platform
+      owns the base image, the Python library and the Citrix tooling; the screens and
+      business logic belong to the app team. One image per app.
+
+  - name: workflow-interactions
+    audience: support
+    summary: >
+      The subsystems. Manage, drive and observe running workflows and apps. One shared
+      namespace per environment. Every member is a Deployable.
+
+  - name: reporting
+    audience: hub-reporting
+    summary: >
+      What happened, recorded and sent onward - platform events, the compliance log and
+      customer webhooks. Two distinct chains that are easy to confuse.
+
+  - name: communication
+    audience: all
+    summary: >
+      The task fabric. AKST the priority queue, in both of its packagings, and the task
+      SDKs that are its Published Language. Every other system depends on this one and
+      none of them owns it.
+
+  - name: platform-delivery
+    audience: all
+    summary: >
+      SUPPORT, not one of the five. How all five are built, configured and deployed.
+      Holds the platform's one genuine cross-cutting concern: config injection by
+      literal env var, generated for every pod, owned by no component.
+
+  - name: external
+    audience: none
+    summary: >
+      Outside the platform boundary. Modelled so edges leaving the platform have
+      somewhere to land. Nothing here is built, owned or indexed here.
